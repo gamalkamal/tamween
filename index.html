@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>تموين - نظام إدارة المستفيدين</title>
+  <meta name="theme-color" content="#1e40af" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="تموين" />
+  <meta name="description" content="نظام تموين لإدارة وتسجيل المستفيدين" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="css/style.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+</head>
+<body>
+
+<!-- ===== SPLASH SCREEN ===== -->
+<div id="splash-screen" class="splash-screen">
+  <div class="splash-content">
+    <div class="splash-logo">
+      <i class="fas fa-box-open"></i>
+    </div>
+    <h1 class="splash-title">تموين</h1>
+    <p class="splash-sub">نظام إدارة المستفيدين</p>
+    <div class="splash-loader"><div></div><div></div><div></div></div>
+  </div>
+</div>
+
+<!-- ===== LOGIN SCREEN ===== -->
+<div id="login-screen" class="screen hidden">
+  <div class="login-bg">
+    <div class="login-card">
+      <div class="login-logo"><i class="fas fa-box-open"></i></div>
+      <h2>تموين</h2>
+      <p class="login-sub">نظام إدارة المستفيدين</p>
+      <div class="form-group">
+        <label>اسم المستخدم</label>
+        <div class="input-wrap">
+          <i class="fas fa-user"></i>
+          <input type="text" id="login-user" placeholder="أدخل اسم المستخدم" />
+        </div>
+      </div>
+      <div class="form-group">
+        <label>كلمة المرور</label>
+        <div class="input-wrap">
+          <i class="fas fa-lock"></i>
+          <input type="password" id="login-pass" placeholder="أدخل كلمة المرور" />
+          <i class="fas fa-eye toggle-pass" onclick="togglePass('login-pass',this)"></i>
+        </div>
+      </div>
+      <div id="login-error" class="error-msg hidden">بيانات الدخول غير صحيحة</div>
+      <button class="btn-primary btn-full" onclick="doLogin()">
+        <i class="fas fa-sign-in-alt"></i> دخول
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== MAIN APP ===== -->
+<div id="app" class="hidden">
+
+  <!-- TOP BAR -->
+  <div class="topbar">
+    <button class="topbar-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></button>
+    <span id="page-title" class="topbar-title">لوحة التحكم</span>
+    <button class="topbar-btn" onclick="showNotifications()"><i class="fas fa-bell"></i></button>
+  </div>
+
+  <!-- SIDEBAR -->
+  <div id="sidebar" class="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-logo"><i class="fas fa-box-open"></i></div>
+      <div>
+        <div class="sidebar-name">تموين</div>
+        <div class="sidebar-role" id="sidebar-role">مشرف</div>
+      </div>
+      <button class="close-sidebar" onclick="toggleSidebar()"><i class="fas fa-times"></i></button>
+    </div>
+    <nav class="sidebar-nav">
+      <a href="#" class="nav-item active" onclick="navigate('dashboard',this)">
+        <i class="fas fa-tachometer-alt"></i><span>لوحة التحكم</span>
+      </a>
+      <a href="#" class="nav-item" onclick="navigate('users',this)">
+        <i class="fas fa-users"></i><span>المستفيدون</span>
+      </a>
+      <a href="#" class="nav-item" onclick="navigate('sections',this)">
+        <i class="fas fa-layer-group"></i><span>الأقسام</span>
+      </a>
+      <a href="#" class="nav-item" onclick="navigate('categories',this)">
+        <i class="fas fa-tags"></i><span>الفئات</span>
+      </a>
+      <a href="#" class="nav-item" onclick="navigate('reports',this)">
+        <i class="fas fa-chart-bar"></i><span>التقارير</span>
+      </a>
+      <a href="#" class="nav-item" onclick="navigate('settings',this)">
+        <i class="fas fa-cog"></i><span>الإعدادات</span>
+      </a>
+    </nav>
+    <div class="sidebar-footer">
+      <button class="btn-logout" onclick="doLogout()">
+        <i class="fas fa-sign-out-alt"></i> تسجيل الخروج
+      </button>
+    </div>
+  </div>
+  <div id="sidebar-overlay" class="sidebar-overlay hidden" onclick="toggleSidebar()"></div>
+
+  <!-- PAGE CONTENT -->
+  <div class="page-content">
+
+    <!-- DASHBOARD -->
+    <div id="page-dashboard" class="page active">
+      <div class="stats-grid">
+        <div class="stat-card blue">
+          <div class="stat-icon"><i class="fas fa-users"></i></div>
+          <div class="stat-info">
+            <div class="stat-num" id="stat-total">0</div>
+            <div class="stat-label">إجمالي المستفيدين</div>
+          </div>
+        </div>
+        <div class="stat-card green">
+          <div class="stat-icon"><i class="fas fa-check-circle"></i></div>
+          <div class="stat-info">
+            <div class="stat-num" id="stat-received">0</div>
+            <div class="stat-label">استلموا التموين</div>
+          </div>
+        </div>
+        <div class="stat-card orange">
+          <div class="stat-icon"><i class="fas fa-clock"></i></div>
+          <div class="stat-info">
+            <div class="stat-num" id="stat-pending">0</div>
+            <div class="stat-label">لم يستلموا بعد</div>
+          </div>
+        </div>
+        <div class="stat-card purple">
+          <div class="stat-icon"><i class="fas fa-id-card"></i></div>
+          <div class="stat-info">
+            <div class="stat-num" id="stat-registered">0</div>
+            <div class="stat-label">مسجلون خارجياً</div>
+          </div>
+        </div>
+      </div>
+      <div class="card mt-16">
+        <div class="card-header">
+          <h3>نظرة عامة على التموين</h3>
+          <select id="dash-month-select" onchange="updateDashChart()" class="select-sm"></select>
+        </div>
+        <canvas id="dashChart" height="200"></canvas>
+      </div>
+      <div class="card mt-16">
+        <div class="card-header">
+          <h3>آخر المستفيدين المضافين</h3>
+          <a href="#" onclick="navigate('users',null)" class="link-more">عرض الكل</a>
+        </div>
+        <div id="recent-users-list"></div>
+      </div>
+    </div>
+
+    <!-- USERS -->
+    <div id="page-users" class="page hidden">
+      <div class="page-actions">
+        <div class="search-wrap">
+          <i class="fas fa-search"></i>
+          <input type="text" id="user-search" placeholder="بحث بالاسم أو الرقم..." oninput="renderUsers()" />
+        </div>
+        <div class="filter-wrap">
+          <select id="filter-section" onchange="renderUsers()" class="select-sm">
+            <option value="">كل الأقسام</option>
+          </select>
+          <select id="filter-category" onchange="renderUsers()" class="select-sm">
+            <option value="">كل الفئات</option>
+          </select>
+        </div>
+        <button class="btn-primary" onclick="openUserModal()">
+          <i class="fas fa-plus"></i> إضافة مستفيد
+        </button>
+      </div>
+      <div id="users-list" class="users-list"></div>
+    </div>
+
+    <!-- SECTIONS -->
+    <div id="page-sections" class="page hidden">
+      <div class="page-actions">
+        <h3 style="margin:0">إدارة الأقسام</h3>
+        <button class="btn-primary" onclick="openSectionModal()">
+          <i class="fas fa-plus"></i> إضافة قسم
+        </button>
+      </div>
+      <div id="sections-list" class="tag-list"></div>
+    </div>
+
+    <!-- CATEGORIES -->
+    <div id="page-categories" class="page hidden">
+      <div class="page-actions">
+        <h3 style="margin:0">إدارة الفئات</h3>
+        <button class="btn-primary" onclick="openCategoryModal()">
+          <i class="fas fa-plus"></i> إضافة فئة
+        </button>
+      </div>
+      <div id="categories-list" class="tag-list"></div>
+    </div>
+
+    <!-- REPORTS -->
+    <div id="page-reports" class="page hidden">
+      <div class="report-controls card">
+        <div class="form-row">
+          <div class="form-group">
+            <label>نوع التقرير</label>
+            <select id="report-type" onchange="generateReport()" class="select-full">
+              <option value="monthly">شهري</option>
+              <option value="yearly">سنوي</option>
+            </select>
+          </div>
+          <div class="form-group" id="report-month-wrap">
+            <label>الشهر</label>
+            <select id="report-month" onchange="generateReport()" class="select-full"></select>
+          </div>
+          <div class="form-group">
+            <label>السنة</label>
+            <select id="report-year" onchange="generateReport()" class="select-full"></select>
+          </div>
+        </div>
+        <button class="btn-primary" onclick="exportPDF()">
+          <i class="fas fa-file-pdf"></i> تصدير PDF
+        </button>
+      </div>
+      <div id="report-content">
+        <div class="card mt-16">
+          <div class="card-header"><h3 id="report-title">تقرير شهري</h3></div>
+          <canvas id="reportChart" height="220"></canvas>
+        </div>
+        <div class="card mt-16" id="report-table-wrap">
+          <table class="data-table" id="report-table">
+            <thead>
+              <tr>
+                <th>#</th><th>الاسم</th><th>القسم</th><th>الفئة</th>
+                <th>مسجل خارجياً</th><th>استلم التموين</th>
+              </tr>
+            </thead>
+            <tbody id="report-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- SETTINGS -->
+    <div id="page-settings" class="page hidden">
+      <div class="card">
+        <h3 class="card-title">إعدادات المشرف</h3>
+        <div class="form-group">
+          <label>اسم المستخدم الحالي</label>
+          <input type="text" id="set-username" class="input-full" />
+        </div>
+        <div class="form-group">
+          <label>كلمة مرور الدخول الجديدة</label>
+          <div class="input-wrap">
+            <i class="fas fa-lock"></i>
+            <input type="password" id="set-loginpass" placeholder="اتركها فارغة إن لم تريد تغييرها" />
+          </div>
+        </div>
+        <div class="form-group">
+          <label>كلمة سر بطاقة العبور</label>
+          <div class="input-wrap">
+            <i class="fas fa-shield-alt"></i>
+            <input type="password" id="set-cardpass" placeholder="كلمة سر خاصة لبطاقة العبور" />
+          </div>
+        </div>
+        <button class="btn-primary" onclick="saveSettings()">
+          <i class="fas fa-save"></i> حفظ الإعدادات
+        </button>
+        <div id="settings-msg" class="success-msg hidden">تم الحفظ بنجاح ✓</div>
+      </div>
+    </div>
+
+  </div><!-- end page-content -->
+</div><!-- end app -->
+
+<!-- ===== MODALS ===== -->
+
+<!-- User Modal -->
+<div id="user-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="user-modal-title">إضافة مستفيد</h3>
+      <button class="modal-close" onclick="closeModal('user-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="user-id" />
+      <div class="form-group">
+        <label>الاسم الكامل *</label>
+        <input type="text" id="user-name" class="input-full" placeholder="أدخل الاسم الكامل" />
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>رقم الهوية</label>
+          <input type="text" id="user-national-id" class="input-full" placeholder="رقم الهوية" />
+        </div>
+        <div class="form-group">
+          <label>رقم الهاتف</label>
+          <input type="text" id="user-phone" class="input-full" placeholder="رقم الهاتف" />
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>القسم</label>
+          <select id="user-section" class="select-full">
+            <option value="">اختر القسم</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>الفئة</label>
+          <select id="user-category" class="select-full">
+            <option value="">اختر الفئة</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label>العنوان</label>
+        <input type="text" id="user-address" class="input-full" placeholder="العنوان" />
+      </div>
+      <div class="form-group">
+        <label>ملاحظات</label>
+        <textarea id="user-notes" class="input-full" rows="2" placeholder="أي ملاحظات..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('user-modal')">إلغاء</button>
+      <button class="btn-primary" onclick="saveUser()"><i class="fas fa-save"></i> حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- User Detail Modal -->
+<div id="detail-modal" class="modal-overlay hidden">
+  <div class="modal modal-lg">
+    <div class="modal-header">
+      <h3 id="detail-name"></h3>
+      <button class="modal-close" onclick="closeModal('detail-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="detail-info-grid" id="detail-info"></div>
+      <div class="checklist-section">
+        <h4 class="section-title"><i class="fas fa-tasks"></i> قائمة المتابعة</h4>
+        <div class="checklist">
+          <label class="check-item">
+            <input type="checkbox" id="chk-external" onchange="saveChecklist()" />
+            <span class="check-box"></span>
+            <span class="check-label">مسجل في النظام الخارجي</span>
+          </label>
+          <label class="check-item">
+            <input type="checkbox" id="chk-received" onchange="saveChecklist()" />
+            <span class="check-box"></span>
+            <span class="check-label">استلم حصة التموين</span>
+          </label>
+        </div>
+        <div class="card-pass-section">
+          <div class="card-pass-header">
+            <i class="fas fa-id-card"></i>
+            <span>بطاقة العبور</span>
+            <span class="badge-protected">محمية</span>
+          </div>
+          <div id="card-pass-locked" class="card-pass-locked">
+            <input type="password" id="card-pass-input" placeholder="أدخل كلمة السر للعرض" class="input-full" />
+            <button class="btn-primary btn-sm" onclick="unlockCard()">
+              <i class="fas fa-unlock"></i> فتح
+            </button>
+            <div id="card-pass-error" class="error-msg hidden">كلمة السر غير صحيحة</div>
+          </div>
+          <div id="card-pass-content" class="card-pass-content hidden">
+            <div class="card-pass-value" id="card-pass-value"></div>
+            <button class="btn-secondary btn-sm" onclick="lockCard()">
+              <i class="fas fa-lock"></i> قفل
+            </button>
+          </div>
+          <div class="form-group mt-8">
+            <label style="font-size:12px">تحديث بطاقة العبور</label>
+            <div class="input-row">
+              <input type="text" id="new-card-value" class="input-full" placeholder="رقم/نص بطاقة العبور" />
+              <button class="btn-primary btn-sm" onclick="updateCardPass()">
+                <i class="fas fa-save"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-danger" onclick="deleteCurrentUser()"><i class="fas fa-trash"></i> حذف</button>
+      <button class="btn-secondary" onclick="editCurrentUser()"><i class="fas fa-edit"></i> تعديل</button>
+      <button class="btn-secondary" onclick="closeModal('detail-modal')">إغلاق</button>
+    </div>
+  </div>
+</div>
+
+<!-- Section Modal -->
+<div id="section-modal" class="modal-overlay hidden">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3 id="section-modal-title">إضافة قسم</h3>
+      <button class="modal-close" onclick="closeModal('section-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="section-id" />
+      <div class="form-group">
+        <label>اسم القسم *</label>
+        <input type="text" id="section-name" class="input-full" placeholder="أدخل اسم القسم" />
+      </div>
+      <div class="form-group">
+        <label>اللون</label>
+        <input type="color" id="section-color" value="#3b82f6" class="input-color" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('section-modal')">إلغاء</button>
+      <button class="btn-primary" onclick="saveSection()"><i class="fas fa-save"></i> حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- Category Modal -->
+<div id="category-modal" class="modal-overlay hidden">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3 id="category-modal-title">إضافة فئة</h3>
+      <button class="modal-close" onclick="closeModal('category-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="category-id" />
+      <div class="form-group">
+        <label>اسم الفئة *</label>
+        <input type="text" id="category-name" class="input-full" placeholder="أدخل اسم الفئة" />
+      </div>
+      <div class="form-group">
+        <label>اللون</label>
+        <input type="color" id="category-color" value="#10b981" class="input-color" />
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('category-modal')">إلغاء</button>
+      <button class="btn-primary" onclick="saveCategory()"><i class="fas fa-save"></i> حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Modal -->
+<div id="confirm-modal" class="modal-overlay hidden">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <h3>تأكيد</h3>
+      <button class="modal-close" onclick="closeModal('confirm-modal')"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <p id="confirm-msg">هل أنت متأكد؟</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closeModal('confirm-modal')">إلغاء</button>
+      <button class="btn-danger" id="confirm-ok-btn">تأكيد</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="js/data.js"></script>
+<script src="js/app.js"></script>
+<script src="js/reports.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./sw.js')
+        .then(r => console.log('SW registered:', r.scope))
+        .catch(e => console.log('SW error:', e));
+    });
+  }
+</script>
+</body>
+</html>
