@@ -9,15 +9,12 @@ function isAndroidWebView() {
 // Smart PDF saver: works on desktop, Chrome Android, and WebView APK
 function savePdfSmart(doc, fileName) {
   try {
-    // 1. Try standard download (desktop + modern Chrome)
     const blob = doc.output('blob');
     const url = URL.createObjectURL(blob);
 
     if (isAndroidWebView()) {
-      // In Android WebView: open in new window so user can use system share/save
       const newWin = window.open(url, '_blank');
       if (!newWin || newWin.closed) {
-        // Blocked popup — fall back to data URI
         const dataUri = doc.output('datauristring');
         const a = document.createElement('a');
         a.href = dataUri;
@@ -29,7 +26,6 @@ function savePdfSmart(doc, fileName) {
       }
       setTimeout(() => URL.revokeObjectURL(url), 5000);
     } else {
-      // Desktop: use hidden anchor download
       const a = document.createElement('a');
       a.href = url;
       a.download = fileName;
@@ -39,7 +35,6 @@ function savePdfSmart(doc, fileName) {
       setTimeout(() => URL.revokeObjectURL(url), 3000);
     }
   } catch(e) {
-    // Final fallback: open as data URI
     const dataUri = doc.output('datauristring');
     window.open(dataUri, '_blank');
   }
@@ -61,92 +56,137 @@ function initReports() {
   yearSel.innerHTML = [currentYear-1, currentYear, currentYear+1].map(y =>
     `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`
   ).join('');
+
   document.getElementById('report-type').addEventListener('change', function() {
     document.getElementById('report-month-wrap').style.display = this.value === 'monthly' ? '' : 'none';
   });
+
+  populateReportDropdowns();
+}
+
+function populateReportDropdowns() {
+  const secSel = document.getElementById('report-section');
+  if (!secSel) return;
+  const sections = DB.getSections();
+  const currentVal = secSel.value;
+  secSel.innerHTML = '<option value="">جميع الأقسام</option>' + sections.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+  if (currentVal) secSel.value = currentVal;
+}
+
+function getFilteredReportUsers() {
+  const type = document.getElementById('report-type').value;
+  const month = parseInt(document.getElementById('report-month').value);
+  const year = parseInt(document.getElementById('report-year').value);
+  const secFilter = document.getElementById('report-section') ? document.getElementById('report-section').value : '';
+  const statusFilter = document.getElementById('report-status') ? document.getElementById('report-status').value : '';
+
+  let list = DB.getUsers();
+
+  // 1. Date filter
+  if (type === 'monthly') {
+    list = list.filter(u => {
+      const d = new Date(u.createdAt);
+      return d.getFullYear() === year && d.getMonth() === month;
+    });
+  } else {
+    list = list.filter(u => new Date(u.createdAt).getFullYear() === year);
+  }
+
+  // 2. Section filter
+  if (secFilter) {
+    list = list.filter(u => u.section === secFilter);
+  }
+
+  // 3. Dispensing status filter
+  if (statusFilter === 'received') {
+    list = list.filter(u => u.receivedTamween);
+  } else if (statusFilter === 'pending') {
+    list = list.filter(u => !u.receivedTamween);
+  }
+
+  return list;
 }
 
 function generateReport() {
   const type = document.getElementById('report-type').value;
   const month = parseInt(document.getElementById('report-month').value);
   const year = parseInt(document.getElementById('report-year').value);
-  const users = DB.getUsers();
+  const secFilter = document.getElementById('report-section') ? document.getElementById('report-section').value : '';
+  const statusFilter = document.getElementById('report-status') ? document.getElementById('report-status').value : '';
   const sections = DB.getSections();
 
-  let filtered;
+  const filtered = getFilteredReportUsers();
+
+  // Title building
+  let titleParts = [];
   if (type === 'monthly') {
-    filtered = users.filter(u => {
-      const d = new Date(u.createdAt);
-      return d.getFullYear() === year && d.getMonth() === month;
-    });
-    document.getElementById('report-title').textContent =
-      `تقرير شهر ${MONTHS_AR[month]} ${year}`;
+    titleParts.push(`تقرير شهر ${MONTHS_AR[month]} ${year}`);
   } else {
-    filtered = users.filter(u => new Date(u.createdAt).getFullYear() === year);
-    document.getElementById('report-title').textContent = `التقرير السنوي ${year}`;
+    titleParts.push(`التقرير السنوي ${year}`);
   }
 
+  if (secFilter) {
+    const s = sections.find(x => x.id === secFilter);
+    titleParts.push(`القسم: ${s ? s.name : ''}`);
+  } else {
+    titleParts.push('جميع الأقسام');
+  }
+
+  if (statusFilter === 'received') {
+    titleParts.push('(تم صرف التموين فقط)');
+  } else if (statusFilter === 'pending') {
+    titleParts.push('(لم يتم الصرف بعد)');
+  } else {
+    titleParts.push('(جميع الحالات)');
+  }
+
+  document.getElementById('report-title').textContent = titleParts.join(' - ');
+
+  // Chart
   const ctx = document.getElementById('reportChart').getContext('2d');
   if (reportChartInstance) reportChartInstance.destroy();
 
-  if (type === 'monthly') {
-    const labels = sections.map(s => s.name);
-    const received = sections.map(s => filtered.filter(u => u.section===s.id && u.receivedTamween).length);
-    const pending = sections.map(s => filtered.filter(u => u.section===s.id && !u.receivedTamween).length);
-    reportChartInstance = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels,
-        datasets: [
-          { label: 'استلم التموين', data: received, backgroundColor: 'rgba(16,185,129,0.8)', borderRadius: 8 },
-          { label: 'لم يستلم', data: pending, backgroundColor: 'rgba(239,68,68,0.7)', borderRadius: 8 }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } },
-        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
-      }
-    });
-  } else {
-    const monthlyTotal = MONTHS_AR.map((_, mi) =>
-      users.filter(u => { const d = new Date(u.createdAt); return d.getFullYear()===year && d.getMonth()===mi; }).length
-    );
-    const monthlyReceived = MONTHS_AR.map((_, mi) =>
-      users.filter(u => { const d = new Date(u.createdAt); return d.getFullYear()===year && d.getMonth()===mi && u.receivedTamween; }).length
-    );
-    reportChartInstance = new Chart(ctx, {
-      type: 'line',
-      data: {
-        labels: MONTHS_AR,
-        datasets: [
-          { label: 'إجمالي المستفيدين', data: monthlyTotal, borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.1)', tension: 0.4, fill: true },
-          { label: 'استلموا التموين', data: monthlyReceived, borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,0.1)', tension: 0.4, fill: true }
-        ]
-      },
-      options: {
-        responsive: true,
-        plugins: { legend: { position: 'bottom' } },
-        scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
-      }
-    });
-  }
+  const chartSections = secFilter ? sections.filter(s => s.id === secFilter) : sections;
+  const labels = chartSections.map(s => s.name);
+  const received = chartSections.map(s => filtered.filter(u => u.section === s.id && u.receivedTamween).length);
+  const pending = chartSections.map(s => filtered.filter(u => u.section === s.id && !u.receivedTamween).length);
 
+  reportChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels,
+      datasets: [
+        { label: 'استلم التموين', data: received, backgroundColor: 'rgba(16,185,129,0.8)', borderRadius: 8 },
+        { label: 'لم يستلم بعد', data: pending, backgroundColor: 'rgba(239,68,68,0.7)', borderRadius: 8 }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } }
+    }
+  });
+
+  // Table
   const cats = DB.getCategories();
   const tbody = document.getElementById('report-tbody');
   if (filtered.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--text-muted)">لا توجد بيانات للفترة المحددة</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;padding:24px;color:var(--text-muted)">لا توجد بيانات مطابقة لمعايير البحث</td></tr>';
     return;
   }
+
   tbody.innerHTML = filtered.map((u, i) => {
-    const sec = sections.find(s => s.id===u.section);
-    const cat = cats.find(c => c.id===u.category);
+    const sec = sections.find(s => s.id === u.section);
+    const cat = cats.find(c => c.id === u.category);
+    const ind = parseInt(u.individuals) || 1;
     return `
     <tr>
       <td>${i+1}</td>
-      <td>${u.name}</td>
+      <td style="font-weight:700;">${u.name}</td>
       <td>${sec ? sec.name : '—'}</td>
       <td>${cat ? cat.name : '—'}</td>
+      <td style="font-family:monospace;font-weight:700;color:var(--primary);">${u.cardPass || '—'}</td>
+      <td style="font-weight:700;">${ind}</td>
       <td style="color:${u.registeredExternal?'#10b981':'#ef4444'};font-weight:700">${u.registeredExternal ? '✔ نعم' : '✘ لا'}</td>
       <td style="color:${u.receivedTamween?'#10b981':'#ef4444'};font-weight:700">${u.receivedTamween ? '✔ نعم' : '✘ لا'}</td>
     </tr>`;
@@ -158,36 +198,36 @@ async function exportPDF() {
   const type = document.getElementById('report-type').value;
   const month = parseInt(document.getElementById('report-month').value);
   const year = parseInt(document.getElementById('report-year').value);
-  const users = DB.getUsers();
+  const secFilter = document.getElementById('report-section') ? document.getElementById('report-section').value : '';
+  const statusFilter = document.getElementById('report-status') ? document.getElementById('report-status').value : '';
+
   const sections = DB.getSections();
   const cats = DB.getCategories();
+  const filtered = getFilteredReportUsers();
 
-  let filtered, titleText, subtitleText;
-  if (type === 'monthly') {
-    filtered = users.filter(u => {
-      const d = new Date(u.createdAt);
-      return d.getFullYear()===year && d.getMonth()===month;
-    });
-    titleText = `تقرير شهر ${MONTHS_AR[month]}`;
-    subtitleText = `السنة: ${year}`;
-  } else {
-    filtered = users.filter(u => new Date(u.createdAt).getFullYear()===year);
-    titleText = `التقرير السنوي`;
-    subtitleText = `السنة: ${year}`;
+  let titleText = type === 'monthly' ? `تقرير شهر ${MONTHS_AR[month]} ${year}` : `التقرير السنوي ${year}`;
+  let sectionLabel = 'جميع الأقسام';
+  if (secFilter) {
+    const s = sections.find(x => x.id === secFilter);
+    if (s) sectionLabel = `قسم: ${s.name}`;
   }
 
-  const total = filtered.length;
-  const received = filtered.filter(u => u.receivedTamween).length;
-  const pending = total - received;
-  const registered = filtered.filter(u => u.registeredExternal).length;
+  let statusLabel = 'جميع الحالات (الكل)';
+  if (statusFilter === 'received') statusLabel = 'تم صرف التموين فقط';
+  else if (statusFilter === 'pending') statusLabel = 'لم يتم الصرف بعد';
 
-  showToast('جاري إنشاء التقرير...', 'info');
+  const totalBeneficiaries = filtered.length;
+  const totalIndividuals = filtered.reduce((sum, u) => sum + (parseInt(u.individuals) || 1), 0);
+  const receivedCount = filtered.filter(u => u.receivedTamween).length;
+  const pendingCount = totalBeneficiaries - receivedCount;
+  const machineRegisteredCount = filtered.filter(u => u.registeredExternal).length;
 
-  // Build a standalone HTML div for rendering
+  showToast('جاري تجهيز تقرير PDF...', 'info');
+
   const printDiv = document.createElement('div');
   printDiv.style.cssText = `
     position:fixed; top:-9999px; left:-9999px;
-    width:794px; background:#fff; font-family:'Cairo',sans-serif;
+    width:850px; background:#fff; font-family:'Cairo',sans-serif;
     direction:rtl; padding:0; z-index:-1;
   `;
 
@@ -199,72 +239,90 @@ async function exportPDF() {
     </style>
 
     <!-- HEADER -->
-    <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);padding:32px 40px;color:#fff;">
-      <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;">
-        <div style="width:56px;height:56px;background:rgba(255,255,255,0.2);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;">📦</div>
-        <div>
-          <div style="font-size:32px;font-weight:900;letter-spacing:2px;">تموين</div>
-          <div style="font-size:14px;opacity:0.8;">نظام إدارة المستفيدين</div>
+    <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);padding:28px 36px;color:#fff;">
+      <div style="display:flex;align-items:center;justify-content:space-between;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <div style="width:52px;height:52px;background:rgba(255,255,255,0.2);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;">📦</div>
+          <div>
+            <div style="font-size:28px;font-weight:900;letter-spacing:1px;">تموين</div>
+            <div style="font-size:13px;opacity:0.85;">نظام إدارة المستفيدين والتموين</div>
+          </div>
+        </div>
+        <div style="text-align:left;font-size:12px;opacity:0.85;">
+          <div>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA-u-nu-latn')}</div>
+          <div>الوقت: ${new Date().toLocaleTimeString('ar-SA-u-nu-latn')}</div>
         </div>
       </div>
-      <div style="font-size:22px;font-weight:800;margin-top:12px;">${titleText}</div>
-      <div style="font-size:14px;opacity:0.85;margin-top:4px;">${subtitleText} &nbsp;|&nbsp; تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA-u-nu-latn')}</div>
+      <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.2);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:20px;font-weight:800;">${titleText}</div>
+        <div style="font-size:13px;background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;">
+          ${sectionLabel} | ${statusLabel}
+        </div>
+      </div>
     </div>
 
-    <!-- STATS -->
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:24px 40px 0;">
-      <div style="background:linear-gradient(135deg,#1e40af,#3b82f6);border-radius:14px;padding:18px;color:#fff;text-align:center;">
-        <div style="font-size:36px;font-weight:900;">${total}</div>
-        <div style="font-size:12px;opacity:0.85;margin-top:4px;">إجمالي المستفيدين</div>
+    <!-- STATS SUMMARY (5 Cards) -->
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:20px 36px 0;">
+      <div style="background:#1e40af;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+        <div style="font-size:28px;font-weight:900;">${totalBeneficiaries}</div>
+        <div style="font-size:11px;opacity:0.9;margin-top:4px;">إجمالي المستفيدين</div>
       </div>
-      <div style="background:linear-gradient(135deg,#065f46,#10b981);border-radius:14px;padding:18px;color:#fff;text-align:center;">
-        <div style="font-size:36px;font-weight:900;">${received}</div>
-        <div style="font-size:12px;opacity:0.85;margin-top:4px;">استلموا التموين</div>
+      <div style="background:#4338ca;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+        <div style="font-size:28px;font-weight:900;">${totalIndividuals}</div>
+        <div style="font-size:11px;opacity:0.9;margin-top:4px;">إجمالي الأفراد</div>
       </div>
-      <div style="background:linear-gradient(135deg,#92400e,#f59e0b);border-radius:14px;padding:18px;color:#fff;text-align:center;">
-        <div style="font-size:36px;font-weight:900;">${pending}</div>
-        <div style="font-size:12px;opacity:0.85;margin-top:4px;">لم يستلموا بعد</div>
+      <div style="background:#065f46;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+        <div style="font-size:28px;font-weight:900;">${receivedCount}</div>
+        <div style="font-size:11px;opacity:0.9;margin-top:4px;">استلموا التموين</div>
       </div>
-      <div style="background:linear-gradient(135deg,#4c1d95,#8b5cf6);border-radius:14px;padding:18px;color:#fff;text-align:center;">
-        <div style="font-size:36px;font-weight:900;">${registered}</div>
-        <div style="font-size:12px;opacity:0.85;margin-top:4px;">مسجلون خارجياً</div>
+      <div style="background:#991b1b;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+        <div style="font-size:28px;font-weight:900;">${pendingCount}</div>
+        <div style="font-size:11px;opacity:0.9;margin-top:4px;">لم يستلموا بعد</div>
+      </div>
+      <div style="background:#6b21a8;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+        <div style="font-size:28px;font-weight:900;">${machineRegisteredCount}</div>
+        <div style="font-size:11px;opacity:0.9;margin-top:4px;">تم التسجيل على الماكينه</div>
       </div>
     </div>
 
     <!-- TABLE -->
-    <div style="padding:24px 40px 40px;">
-      <div style="font-size:16px;font-weight:800;color:#1e40af;margin-bottom:14px;border-right:4px solid #3b82f6;padding-right:10px;">قائمة المستفيدين</div>
-      <table style="width:100%;border-collapse:collapse;font-size:13px;">
+    <div style="padding:20px 36px 36px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
           <tr style="background:linear-gradient(90deg,#1e40af,#3b82f6);color:#fff;">
-            <th style="padding:12px 10px;text-align:right;border-radius:0;font-weight:700;">#</th>
-            <th style="padding:12px 10px;text-align:right;font-weight:700;">الاسم الكامل</th>
-            <th style="padding:12px 10px;text-align:right;font-weight:700;">القسم</th>
-            <th style="padding:12px 10px;text-align:right;font-weight:700;">الفئة</th>
-            <th style="padding:12px 10px;text-align:center;font-weight:700;">مسجل خارجياً</th>
-            <th style="padding:12px 10px;text-align:center;font-weight:700;">استلم التموين</th>
+            <th style="padding:10px 8px;text-align:right;">#</th>
+            <th style="padding:10px 8px;text-align:right;">الاسم الكامل</th>
+            <th style="padding:10px 8px;text-align:right;">القسم</th>
+            <th style="padding:10px 8px;text-align:right;">الفئة</th>
+            <th style="padding:10px 8px;text-align:center;">بطاقة العبور</th>
+            <th style="padding:10px 8px;text-align:center;">عدد الأفراد</th>
+            <th style="padding:10px 8px;text-align:center;">مسجل على الماكينه</th>
+            <th style="padding:10px 8px;text-align:center;">استلم التموين</th>
           </tr>
         </thead>
         <tbody>
           ${filtered.length === 0
-            ? `<tr><td colspan="6" style="text-align:center;padding:30px;color:#64748b;">لا توجد بيانات للفترة المحددة</td></tr>`
+            ? `<tr><td colspan="8" style="text-align:center;padding:30px;color:#64748b;">لا توجد بيانات مطابقة لمعايير التقرير</td></tr>`
             : filtered.map((u, i) => {
-                const sec = sections.find(s => s.id===u.section);
-                const cat = cats.find(c => c.id===u.category);
-                const bg = i % 2 === 0 ? '#f8fafc' : '#fff';
+                const sec = sections.find(s => s.id === u.section);
+                const cat = cats.find(c => c.id === u.category);
+                const ind = parseInt(u.individuals) || 1;
+                const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
                 return `
-                <tr style="background:${bg};">
-                  <td style="padding:11px 10px;color:#64748b;font-weight:600;">${i+1}</td>
-                  <td style="padding:11px 10px;font-weight:700;color:#0f172a;">${u.name}</td>
-                  <td style="padding:11px 10px;color:#475569;">${sec ? sec.name : '—'}</td>
-                  <td style="padding:11px 10px;color:#475569;">${cat ? cat.name : '—'}</td>
-                  <td style="padding:11px 10px;text-align:center;">
-                    <span style="background:${u.registeredExternal?'#d1fae5':'#fee2e2'};color:${u.registeredExternal?'#065f46':'#991b1b'};padding:4px 12px;border-radius:20px;font-weight:700;font-size:12px;">
+                <tr style="background:${bg};border-bottom:1px solid #e2e8f0;">
+                  <td style="padding:9px 8px;color:#64748b;font-weight:600;">${i+1}</td>
+                  <td style="padding:9px 8px;font-weight:700;color:#0f172a;">${u.name}</td>
+                  <td style="padding:9px 8px;color:#475569;">${sec ? sec.name : '—'}</td>
+                  <td style="padding:9px 8px;color:#475569;">${cat ? cat.name : '—'}</td>
+                  <td style="padding:9px 8px;text-align:center;font-weight:800;color:#1e40af;font-family:monospace;">${u.cardPass || '—'}</td>
+                  <td style="padding:9px 8px;text-align:center;font-weight:800;color:#0f172a;">${ind}</td>
+                  <td style="padding:9px 8px;text-align:center;">
+                    <span style="background:${u.registeredExternal?'#d1fae5':'#fee2e2'};color:${u.registeredExternal?'#065f46':'#991b1b'};padding:3px 10px;border-radius:20px;font-weight:700;font-size:11px;">
                       ${u.registeredExternal ? '✔ نعم' : '✘ لا'}
                     </span>
                   </td>
-                  <td style="padding:11px 10px;text-align:center;">
-                    <span style="background:${u.receivedTamween?'#d1fae5':'#fee2e2'};color:${u.receivedTamween?'#065f46':'#991b1b'};padding:4px 12px;border-radius:20px;font-weight:700;font-size:12px;">
+                  <td style="padding:9px 8px;text-align:center;">
+                    <span style="background:${u.receivedTamween?'#d1fae5':'#fee2e2'};color:${u.receivedTamween?'#065f46':'#991b1b'};padding:3px 10px;border-radius:20px;font-weight:700;font-size:11px;">
                       ${u.receivedTamween ? '✔ نعم' : '✘ لا'}
                     </span>
                   </td>
@@ -274,38 +332,16 @@ async function exportPDF() {
         </tbody>
       </table>
 
-      <!-- SECTION SUMMARY -->
-      ${sections.length > 0 ? `
-      <div style="margin-top:28px;">
-        <div style="font-size:16px;font-weight:800;color:#1e40af;margin-bottom:14px;border-right:4px solid #3b82f6;padding-right:10px;">ملخص الأقسام</div>
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
-          ${sections.map(s => {
-            const secUsers = filtered.filter(u => u.section === s.id);
-            const secReceived = secUsers.filter(u => u.receivedTamween).length;
-            return `
-            <div style="background:#f8fafc;border:1.5px solid #e2e8f0;border-radius:12px;padding:14px;">
-              <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;">
-                <div style="width:12px;height:12px;border-radius:50%;background:${s.color};flex-shrink:0;"></div>
-                <div style="font-size:14px;font-weight:700;color:#0f172a;">${s.name}</div>
-              </div>
-              <div style="font-size:12px;color:#64748b;">الإجمالي: <strong style="color:#1e40af;">${secUsers.length}</strong></div>
-              <div style="font-size:12px;color:#64748b;margin-top:2px;">استلموا: <strong style="color:#10b981;">${secReceived}</strong> &nbsp;|&nbsp; لم يستلموا: <strong style="color:#ef4444;">${secUsers.length - secReceived}</strong></div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>` : ''}
-
       <!-- FOOTER -->
-      <div style="margin-top:36px;padding-top:16px;border-top:2px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;color:#94a3b8;font-size:11px;">
-        <span>نظام تموين - جميع الحقوق محفوظة</span>
-        <span>تم الإنشاء: ${new Date().toLocaleString('ar-SA-u-nu-latn')}</span>
+      <div style="margin-top:28px;padding-top:14px;border-top:2px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;color:#94a3b8;font-size:11px;">
+        <span>نظام تموين - تقرير رسمي مصدق</span>
+        <span>إجمالي الصفحات: صفحة 1 من 1</span>
       </div>
     </div>
   `;
 
   document.body.appendChild(printDiv);
 
-  // Wait for fonts to load
   await document.fonts.ready;
   await new Promise(r => setTimeout(r, 600));
 
@@ -315,14 +351,13 @@ async function exportPDF() {
       useCORS: true,
       allowTaint: true,
       backgroundColor: '#ffffff',
-      width: 794,
+      width: 850,
       logging: false
     });
 
     const { jsPDF } = window.jspdf;
     const imgData = canvas.toDataURL('image/jpeg', 0.97);
 
-    // A4: 210mm x 297mm
     const pageW = 210;
     const pageH = 297;
     const imgW = pageW;
@@ -343,12 +378,14 @@ async function exportPDF() {
       heightLeft -= pageH;
     }
 
+    const secFilePart = secFilter ? `_sec_${secFilter}` : '_all_sections';
+    const statusFilePart = statusFilter ? `_${statusFilter}` : '_all';
     const fileName = type === 'monthly'
-      ? `tamween_${year}_${String(month+1).padStart(2,'0')}.pdf`
-      : `tamween_annual_${year}.pdf`;
+      ? `tamween_${year}_${String(month+1).padStart(2,'0')}${secFilePart}${statusFilePart}.pdf`
+      : `tamween_annual_${year}${secFilePart}${statusFilePart}.pdf`;
 
     savePdfSmart(doc, fileName);
-    showToast('تم تصدير التقرير بنجاح ✓', 'success');
+    showToast('تم تصدير وطباعة التقرير بنجاح ✓', 'success');
   } catch(err) {
     console.error(err);
     showToast('حدث خطأ أثناء إنشاء PDF', 'error');
