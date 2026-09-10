@@ -128,8 +128,115 @@ const DB = {
     return this._cache.users.find(u => u.id === id);
   },
 
+  // ── Monthly Cycles Helper Methods ──
+  getDefaultMonthKey() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  },
+
+  getActiveMonthKey() {
+    try {
+      const saved = localStorage.getItem('tamween_active_month');
+      if (saved && /^\d{4}-\d{2}$/.test(saved)) return saved;
+    } catch (e) {}
+    return this.getDefaultMonthKey();
+  },
+
+  setActiveMonthKey(key) {
+    try {
+      localStorage.setItem('tamween_active_month', key);
+    } catch (e) {}
+  },
+
+  getUserMonthlyData(user, monthKey) {
+    if (!user) return { registeredExternal: false, receivedTamween: false, receivedAt: null };
+    if (!monthKey) monthKey = this.getActiveMonthKey();
+
+    // 1. Explicit monthly record
+    if (user.monthlyRecords && user.monthlyRecords[monthKey]) {
+      return user.monthlyRecords[monthKey];
+    }
+
+    // 2. Migration fallback for current calendar month
+    const currentKey = this.getDefaultMonthKey();
+    if (monthKey === currentKey && (user.receivedTamween !== undefined || user.registeredExternal !== undefined)) {
+      return {
+        registeredExternal: Boolean(user.registeredExternal),
+        receivedTamween: Boolean(user.receivedTamween),
+        receivedAt: user.receivedAt || null
+      };
+    }
+
+    // 3. Default for unrecorded months
+    return {
+      registeredExternal: false,
+      receivedTamween: false,
+      receivedAt: null
+    };
+  },
+
+  async updateUserMonthlyData(userId, monthKey, updates) {
+    if (!userId) return;
+    if (!monthKey) monthKey = this.getActiveMonthKey();
+
+    const user = this.getUserById(userId);
+    if (!user) return;
+
+    if (!user.monthlyRecords) user.monthlyRecords = {};
+    const existing = user.monthlyRecords[monthKey] || this.getUserMonthlyData(user, monthKey);
+    const updatedMonthData = { ...existing, ...updates };
+
+    // Update in local cache
+    user.monthlyRecords[monthKey] = updatedMonthData;
+
+    // Mirror to top-level if active month is current calendar month
+    if (monthKey === this.getDefaultMonthKey()) {
+      if (updates.registeredExternal !== undefined) user.registeredExternal = updates.registeredExternal;
+      if (updates.receivedTamween !== undefined) user.receivedTamween = updates.receivedTamween;
+    }
+
+    // Persist to Firestore
+    try {
+      const firestoreUpdate = {
+        [`monthlyRecords.${monthKey}`]: updatedMonthData
+      };
+      if (monthKey === this.getDefaultMonthKey()) {
+        if (updates.registeredExternal !== undefined) firestoreUpdate.registeredExternal = updates.registeredExternal;
+        if (updates.receivedTamween !== undefined) firestoreUpdate.receivedTamween = updates.receivedTamween;
+      }
+      await COLS.users.doc(userId).update(firestoreUpdate);
+    } catch (err) {
+      await COLS.users.doc(userId).set({
+        monthlyRecords: { [monthKey]: updatedMonthData }
+      }, { merge: true });
+    }
+  },
+
+  async copyMachineStatusFromPrevMonth(targetMonthKey, prevMonthKey) {
+    const users = this.getUsers();
+    let count = 0;
+    for (const u of users) {
+      const prevData = this.getUserMonthlyData(u, prevMonthKey);
+      if (prevData && prevData.registeredExternal) {
+        await this.updateUserMonthlyData(u.id, targetMonthKey, { registeredExternal: true });
+        count++;
+      }
+    }
+    return count;
+  },
+
   async addUser(user) {
     user.createdAt = new Date().toISOString();
+    const currentKey = this.getDefaultMonthKey();
+    if (!user.monthlyRecords) {
+      user.monthlyRecords = {
+        [currentKey]: {
+          registeredExternal: Boolean(user.registeredExternal),
+          receivedTamween: Boolean(user.receivedTamween),
+          receivedAt: null
+        }
+      };
+    }
     const ref = await COLS.users.add(user);
     const newUser = { id: ref.id, ...user };
     if (!this._cache.users.some(u => u.id === ref.id)) {
