@@ -3,6 +3,68 @@
 // ---- State ----
 let currentUserId = null;
 let dashChartInstance = null;
+let currentMonthKey = DB.getActiveMonthKey();
+
+const MONTH_NAMES_AR = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+
+function formatMonthKey(key) {
+  if (!key) return '';
+  const parts = key.split('-');
+  if (parts.length !== 2) return key;
+  const y = parts[0];
+  const m = parseInt(parts[1], 10) - 1;
+  return `${MONTH_NAMES_AR[m] || parts[1]} ${y}`;
+}
+
+function populateActiveMonthSelectors() {
+  const now = new Date();
+  const options = [];
+  for (let i = -6; i <= 3; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const label = formatMonthKey(key) + (i === 0 ? ' (الشهر الحالي)' : '');
+    options.push({ key, label });
+  }
+
+  ['active-month-dash', 'active-month-users'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.innerHTML = options.map(o =>
+      `<option value="${o.key}" ${o.key === currentMonthKey ? 'selected' : ''}>${o.label}</option>`
+    ).join('');
+  });
+}
+
+function changeActiveMonth(key) {
+  if (!key) return;
+  currentMonthKey = key;
+  DB.setActiveMonthKey(key);
+  ['active-month-dash', 'active-month-users'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = key;
+  });
+  renderDashboard();
+  renderUsers();
+  showToast(`تم التبديل لدورة: ${formatMonthKey(key)}`, 'info');
+}
+
+async function copyMachineStatusFromPrevious() {
+  const parts = currentMonthKey.split('-');
+  const y = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  const d = new Date(y, m - 2, 1);
+  const prevKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const prevLabel = formatMonthKey(prevKey);
+  const curLabel = formatMonthKey(currentMonthKey);
+
+  confirmAction(`هل تريد نسخ حالة "تم التسجيل على الماكينه" من دورة ${prevLabel} إلى دورة ${curLabel}؟`, async () => {
+    showToast('جاري نسخ البيانات...', 'info');
+    const count = await DB.copyMachineStatusFromPrevMonth(currentMonthKey, prevKey);
+    renderDashboard();
+    renderUsers();
+    showToast(`تم نسخ حالة الماكينة لـ ${count} مستفيد بنجاح ✓`, 'success');
+  });
+}
 
 // ---- Avatar Colors ----
 const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#f97316','#06b6d4','#84cc16'];
@@ -46,7 +108,6 @@ function clearSession() {
 window.addEventListener('DOMContentLoaded', () => {
   DB.init();
   startFirestoreSync(); // Pre-load cloud data in background during splash
-  populateMonthSelect('dash-month-select');
 
   const session = getSession();
 
@@ -137,6 +198,8 @@ function togglePass(id, el) {
 
 // ---- App Init ----
 function initApp() {
+  currentMonthKey = DB.getActiveMonthKey();
+  populateActiveMonthSelectors();
   renderDashboard();
   populateFilterDropdowns();
   renderUsers();
@@ -185,10 +248,18 @@ function showNotifications() { showToast('لا توجد إشعارات جديد�
 // ---- Dashboard ----
 function renderDashboard() {
   const users = DB.getUsers();
+  const mData = users.map(u => DB.getUserMonthlyData(u, currentMonthKey));
+  const recCount = mData.filter(m => m.receivedTamween).length;
+  const regCount = mData.filter(m => m.registeredExternal).length;
+
   document.getElementById('stat-total').textContent = users.length;
-  document.getElementById('stat-received').textContent = users.filter(u => u.receivedTamween).length;
-  document.getElementById('stat-pending').textContent = users.filter(u => !u.receivedTamween).length;
-  document.getElementById('stat-registered').textContent = users.filter(u => u.registeredExternal).length;
+  document.getElementById('stat-received').textContent = recCount;
+  document.getElementById('stat-pending').textContent = users.length - recCount;
+  document.getElementById('stat-registered').textContent = regCount;
+
+  // Set active month indicator on dashboard if present
+  const dashMonthLabel = document.getElementById('dash-active-month-text');
+  if (dashMonthLabel) dashMonthLabel.textContent = formatMonthKey(currentMonthKey);
 
   // Recent users
   const recent = document.getElementById('recent-users-list');
@@ -196,12 +267,13 @@ function renderDashboard() {
   if (last5.length === 0) { recent.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:20px">لا يوجد مستفيدون بعد</p>'; return; }
   recent.innerHTML = last5.map(u => {
     const sec = DB.getSections().find(s => s.id === u.section);
+    const um = DB.getUserMonthlyData(u, currentMonthKey);
     return `
     <div class="recent-user-item" onclick="openUserDetail('${u.id}')">
       <div class="recent-user-avatar" style="background:${avatarColor(u.name)}">${initials(u.name)}</div>
       <div>
         <div class="recent-user-name">${u.name}</div>
-        <div class="recent-user-meta">${sec ? sec.name : 'بدون قسم'} · ${u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم'}</div>
+        <div class="recent-user-meta">${sec ? sec.name : 'بدون قسم'} · ${um.receivedTamween ? '✅ استلم' : '⏳ لم يستلم'}</div>
       </div>
     </div>`;
   }).join('');
@@ -214,8 +286,8 @@ function updateDashChart() {
   const sections = DB.getSections();
 
   const labels = sections.map(s => s.name);
-  const received = sections.map(s => users.filter(u => u.section === s.id && u.receivedTamween).length);
-  const notReceived = sections.map(s => users.filter(u => u.section === s.id && !u.receivedTamween).length);
+  const received = sections.map(s => users.filter(u => u.section === s.id && DB.getUserMonthlyData(u, currentMonthKey).receivedTamween).length);
+  const notReceived = sections.map(s => users.filter(u => u.section === s.id && !DB.getUserMonthlyData(u, currentMonthKey).receivedTamween).length);
 
   const ctx = document.getElementById('dashChart').getContext('2d');
   if (dashChartInstance) dashChartInstance.destroy();
@@ -261,6 +333,7 @@ function renderUsers() {
     const sec = sections.find(s => s.id === u.section);
     const cat = categories.find(c => c.id === u.category);
     const ind = parseInt(u.individuals) || 1;
+    const um = DB.getUserMonthlyData(u, currentMonthKey);
     return `
     <div class="user-card" onclick="openUserDetail('${u.id}')">
       <div class="user-avatar" style="background:${avatarColor(u.name)}">${initials(u.name)}</div>
@@ -274,8 +347,8 @@ function renderUsers() {
           ${sec ? `<span class="badge badge-info" style="background:${sec.color}22;color:${sec.color}">${sec.name}</span>` : ''}
           ${cat ? `<span class="badge badge-neutral" style="background:${cat.color}22;color:${cat.color}">${cat.name}</span>` : ''}
           <span class="badge badge-neutral"><i class="fas fa-users"></i> ${ind} ${ind === 1 ? 'فرد' : 'أفراد'}</span>
-          ${u.registeredExternal ? '<span class="badge badge-success">تم التسجيل على الماكينه</span>' : '<span class="badge badge-warning">لم يتم التسجيل</span>'}
-          ${u.receivedTamween ? '<span class="badge badge-success">استلم التموين</span>' : '<span class="badge badge-danger">لم يستلم</span>'}
+          ${um.registeredExternal ? '<span class="badge badge-success">تم التسجيل على الماكينه</span>' : '<span class="badge badge-warning">لم يتم التسجيل</span>'}
+          ${um.receivedTamween ? '<span class="badge badge-success">استلم التموين</span>' : '<span class="badge badge-danger">لم يستلم</span>'}
         </div>
       </div>
       <i class="fas fa-chevron-left user-arrow"></i>
@@ -385,8 +458,12 @@ function openUserDetail(userId) {
     ${u.notes ? `<div class="detail-item" style="grid-column:span 2"><div class="detail-item-label">ملاحظات</div><div class="detail-item-value">${u.notes}</div></div>` : ''}
   `;
 
-  document.getElementById('chk-external').checked = u.registeredExternal || false;
-  document.getElementById('chk-received').checked = u.receivedTamween || false;
+  const um = DB.getUserMonthlyData(u, currentMonthKey);
+  document.getElementById('chk-external').checked = um.registeredExternal || false;
+  document.getElementById('chk-received').checked = um.receivedTamween || false;
+
+  const monthLbl = document.getElementById('detail-month-label');
+  if (monthLbl) monthLbl.textContent = formatMonthKey(currentMonthKey);
 
   // Direct card pass & individuals display (NO password required!)
   document.getElementById('card-pass-value').textContent = u.cardPass || '—';
@@ -399,10 +476,13 @@ function openUserDetail(userId) {
 
 function saveChecklist() {
   if (!currentUserId) return;
-  DB.updateUser({
-    id: currentUserId,
-    registeredExternal: document.getElementById('chk-external').checked,
-    receivedTamween: document.getElementById('chk-received').checked
+  const isExt = document.getElementById('chk-external').checked;
+  const isRec = document.getElementById('chk-received').checked;
+
+  DB.updateUserMonthlyData(currentUserId, currentMonthKey, {
+    registeredExternal: isExt,
+    receivedTamween: isRec,
+    receivedAt: isRec ? new Date().toISOString() : null
   });
   renderDashboard();
   renderUsers();
