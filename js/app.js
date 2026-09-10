@@ -17,18 +17,57 @@ function initials(name) {
   return p[0].substring(0, 2);
 }
 
+// ---- Session Management ----
+function setSession(username) {
+  try {
+    localStorage.setItem('tamween_session', JSON.stringify({
+      loggedIn: true,
+      username: username,
+      loginTime: Date.now()
+    }));
+  } catch (e) {}
+}
+
+function getSession() {
+  try {
+    const raw = localStorage.getItem('tamween_session');
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return null;
+}
+
+function clearSession() {
+  try {
+    localStorage.removeItem('tamween_session');
+  } catch (e) {}
+}
+
 // ---- Init ----
 window.addEventListener('DOMContentLoaded', () => {
   DB.init();
   startFirestoreSync(); // Pre-load cloud data in background during splash
-  setTimeout(() => {
-    document.getElementById('splash-screen').style.opacity = '0';
-    setTimeout(() => {
-      document.getElementById('splash-screen').classList.add('hidden');
-      document.getElementById('login-screen').classList.remove('hidden');
-    }, 500);
-  }, 1800);
   populateMonthSelect('dash-month-select');
+
+  const session = getSession();
+
+  setTimeout(() => {
+    const splash = document.getElementById('splash-screen');
+    splash.style.opacity = '0';
+    setTimeout(() => {
+      splash.classList.add('hidden');
+
+      if (session && session.loggedIn) {
+        // User is already logged in — bypass login screen
+        document.getElementById('login-screen').classList.add('hidden');
+        document.getElementById('app').classList.remove('hidden');
+        document.getElementById('sidebar-role').textContent = 'مشرف النظام';
+        initApp();
+      } else {
+        // No active session — show login screen
+        document.getElementById('login-screen').classList.remove('hidden');
+      }
+    }, 400);
+  }, 1400);
 });
 
 // ---- Start Firestore real-time sync ----
@@ -56,8 +95,6 @@ function startFirestoreSync() {
   });
 }
 
-
-
 // ---- Login ----
 function doLogin() {
   const user = document.getElementById('login-user').value.trim();
@@ -66,6 +103,7 @@ function doLogin() {
   const err = document.getElementById('login-error');
   if (user === s.username && pass === s.loginPassword) {
     err.classList.add('hidden');
+    setSession(user); // Persist session across refreshes
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('sidebar-role').textContent = 'مشرف النظام';
@@ -83,6 +121,7 @@ document.addEventListener('keydown', e => {
 });
 
 function doLogout() {
+  clearSession(); // Remove persistent session
   document.getElementById('app').classList.add('hidden');
   document.getElementById('login-screen').classList.remove('hidden');
   document.getElementById('login-user').value = '';
