@@ -40,24 +40,48 @@ function getFilteredReportUsers() {
   const secFilter = document.getElementById('report-section') ? document.getElementById('report-section').value : '';
   const statusFilter = document.getElementById('report-status') ? document.getElementById('report-status').value : '';
 
-  let list = DB.getUsers();
+  const allUsers = DB.getUsers();
+  const monthKey = type === 'monthly' ? `${year}-${String(month + 1).padStart(2, '0')}` : null;
 
-  // 1. Date filter
-  if (type === 'monthly') {
-    list = list.filter(u => {
-      const d = new Date(u.createdAt);
-      return d.getFullYear() === year && d.getMonth() === month;
-    });
-  } else {
-    list = list.filter(u => new Date(u.createdAt).getFullYear() === year);
-  }
+  // Resolve each user's specific status for the selected report period
+  let list = allUsers.map(u => {
+    if (type === 'monthly') {
+      const m = DB.getUserMonthlyData(u, monthKey);
+      return {
+        ...u,
+        registeredExternal: m.registeredExternal,
+        receivedTamween: m.receivedTamween,
+        receivedAt: m.receivedAt
+      };
+    } else {
+      // Yearly: check if received in any month of this year
+      let receivedInYear = false;
+      let registeredInYear = false;
+      if (u.monthlyRecords) {
+        Object.entries(u.monthlyRecords).forEach(([k, val]) => {
+          if (k.startsWith(String(year))) {
+            if (val.receivedTamween) receivedInYear = true;
+            if (val.registeredExternal) registeredInYear = true;
+          }
+        });
+      } else {
+        receivedInYear = Boolean(u.receivedTamween);
+        registeredInYear = Boolean(u.registeredExternal);
+      }
+      return {
+        ...u,
+        registeredExternal: registeredInYear,
+        receivedTamween: receivedInYear
+      };
+    }
+  });
 
-  // 2. Section filter
+  // 1. Section filter
   if (secFilter) {
     list = list.filter(u => u.section === secFilter);
   }
 
-  // 3. Dispensing status filter
+  // 2. Dispensing status filter
   if (statusFilter === 'received') {
     list = list.filter(u => u.receivedTamween);
   } else if (statusFilter === 'pending') {
