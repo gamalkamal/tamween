@@ -1,43 +1,130 @@
 /* ===== REPORTS & PDF ===== */
 
+let currentPdfDoc = null;
+let currentPdfBlob = null;
+let currentPdfFileName = '';
+let currentReportImage = null;
+
 // Detect Android WebView / PWA environment
 function isAndroidWebView() {
   const ua = navigator.userAgent || '';
   return /Android/.test(ua) && (/wv/.test(ua) || /Version\/[\d.]+.*Chrome/.test(ua) || window.Android !== undefined);
 }
 
-// Smart PDF saver: works on desktop, Chrome Android, and WebView APK
+// Smart PDF saver: direct download
 function savePdfSmart(doc, fileName) {
   try {
     const blob = doc.output('blob');
     const url = URL.createObjectURL(blob);
-
-    if (isAndroidWebView()) {
-      const newWin = window.open(url, '_blank');
-      if (!newWin || newWin.closed) {
-        const dataUri = doc.output('datauristring');
-        const a = document.createElement('a');
-        a.href = dataUri;
-        a.download = fileName;
-        a.target = '_blank';
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-      }
-      setTimeout(() => URL.revokeObjectURL(url), 5000);
-    } else {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+  } catch(e) {
+    try {
+      const dataUri = doc.output('datauristring');
       const a = document.createElement('a');
-      a.href = url;
+      a.href = dataUri;
       a.download = fileName;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    } catch(err) {
+      console.warn('Download error:', err);
     }
-  } catch(e) {
-    const dataUri = doc.output('datauristring');
-    window.open(dataUri, '_blank');
   }
+}
+
+// Native Mobile Share / Save
+async function shareCurrentPDF() {
+  if (!currentPdfBlob) {
+    showToast('لا يوجد تقرير جاهز للمشاركة', 'error');
+    return;
+  }
+
+  const file = new File([currentPdfBlob], currentPdfFileName, { type: 'application/pdf' });
+
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try {
+      await navigator.share({
+        files: [file],
+        title: 'تقرير تموين',
+        text: currentPdfFileName
+      });
+      showToast('تمت المشاركة بنجاح ✓', 'success');
+      return;
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn('Share error:', err);
+      } else {
+        return; // User closed the native share tray
+      }
+    }
+  }
+
+  // Fallback if Web Share API with files is not available
+  downloadCurrentPDF();
+}
+
+// Native Print / Save as PDF
+function printCurrentReport() {
+  if (!currentReportImage) return;
+
+  let printFrame = document.getElementById('report-print-frame');
+  if (printFrame) {
+    try { document.body.removeChild(printFrame); } catch(e) {}
+  }
+
+  printFrame = document.createElement('iframe');
+  printFrame.id = 'report-print-frame';
+  printFrame.style.position = 'fixed';
+  printFrame.style.right = '0';
+  printFrame.style.bottom = '0';
+  printFrame.style.width = '0';
+  printFrame.style.height = '0';
+  printFrame.style.border = '0';
+  document.body.appendChild(printFrame);
+
+  const frameDoc = printFrame.contentWindow.document;
+  frameDoc.open();
+  frameDoc.write(`
+    <!DOCTYPE html>
+    <html dir="rtl">
+    <head>
+      <title>${currentPdfFileName}</title>
+      <style>
+        @page { size: A4 portrait; margin: 0; }
+        body { margin: 0; padding: 0; background: #fff; text-align: center; }
+        img { width: 100%; max-width: 210mm; display: block; margin: 0 auto; }
+      </style>
+    </head>
+    <body>
+      <img src="${currentReportImage}" />
+    </body>
+    </html>
+  `);
+  frameDoc.close();
+
+  setTimeout(() => {
+    printFrame.contentWindow.focus();
+    printFrame.contentWindow.print();
+    setTimeout(() => {
+      try { document.body.removeChild(printFrame); } catch(e) {}
+    }, 2000);
+  }, 400);
+}
+
+// Direct Download action
+function downloadCurrentPDF() {
+  if (!currentPdfDoc) {
+    showToast('لا يوجد تقرير للتنزيل', 'error');
+    return;
+  }
+  savePdfSmart(currentPdfDoc, currentPdfFileName);
+  showToast('جاري تنزيل التقرير في مجلد التنزيلات ✓', 'success');
 }
 
 let reportChartInstance = null;
@@ -384,8 +471,35 @@ async function exportPDF() {
       ? `tamween_${year}_${String(month+1).padStart(2,'0')}${secFilePart}${statusFilePart}.pdf`
       : `tamween_annual_${year}${secFilePart}${statusFilePart}.pdf`;
 
-    savePdfSmart(doc, fileName);
-    showToast('تم تصدير وطباعة التقرير بنجاح ✓', 'success');
+    // Save references for modal & sharing
+    currentPdfDoc = doc;
+    currentPdfBlob = doc.output('blob');
+    currentPdfFileName = fileName;
+    currentReportImage = imgData;
+
+    // 1. Render in-app preview container
+    const previewContainer = document.getElementById('report-preview-container');
+    if (previewContainer) {
+      previewContainer.innerHTML = `<img src="${imgData}" style="width:100%;display:block;border-radius:6px;" alt="معاينة التقرير" />`;
+    }
+    const previewTitle = document.getElementById('report-preview-title');
+    if (previewTitle) {
+      previewTitle.textContent = `${titleText} (${sectionLabel} - ${statusLabel})`;
+    }
+
+    // 2. Open the preview modal on screen immediately!
+    openModal('report-preview-modal');
+    showToast('تم تجهيز التقرير بنجاح ✓', 'success');
+
+    // 3. For mobile / Android APK: directly trigger native share if available!
+    if (isAndroidWebView() || /Android|iPhone|iPad/i.test(navigator.userAgent)) {
+      setTimeout(() => {
+        shareCurrentPDF();
+      }, 400);
+    } else {
+      // Desktop browser: trigger direct download
+      downloadCurrentPDF();
+    }
   } catch(err) {
     console.error(err);
     showToast('حدث خطأ أثناء إنشاء PDF', 'error');
