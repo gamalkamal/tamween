@@ -159,11 +159,18 @@ function generateReport() {
 //  Zero memory overhead — Never crashes
 // ══════════════════════════════════════════════════
 function openPrintPage() {
-  const hash = saveReportDataForPrinting();
-  const targetUrl = 'print.html' + hash;
-  const win = window.open(targetUrl, '_blank');
-  if (!win || win.closed) {
-    window.location.href = targetUrl;
+  saveReportDataForPrinting();
+  const isWebView = /wv|Version\/[0-9.]+/i.test(navigator.userAgent) || (!window.chrome && /Android/i.test(navigator.userAgent));
+  
+  if (isWebView) {
+    // Inside APK: Navigate directly so the WebView loads the dedicated print page
+    window.location.href = 'print.html';
+  } else {
+    // Desktop / Browser: Open in clean new tab
+    const win = window.open('print.html', '_blank');
+    if (!win || win.closed) {
+      window.location.href = 'print.html';
+    }
   }
 }
 
@@ -187,7 +194,7 @@ function saveReportDataForPrinting() {
     console.warn('Print data storage warning:', e);
   }
 
-  return '#data=' + encodeURIComponent(json);
+  return '';
 }
 
 // ══════════════════════════════════════════════════
@@ -239,10 +246,15 @@ function exportToExcel() {
 }
 
 // ══════════════════════════════════════════════════
-//  ACTION 3: Share Formatted Report to WhatsApp
+//  ACTION 3: Share Formatted Report to WhatsApp (Safe - Zero 500 Error)
 // ══════════════════════════════════════════════════
-function shareReportWhatsApp() {
+async function shareReportWhatsApp() {
   const filtered = getFilteredReportUsers();
+  if (filtered.length === 0) {
+    showToast('لا توجد بيانات للمشاركة', 'error');
+    return;
+  }
+
   const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
   const total = filtered.length;
   const totalInd = filtered.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
@@ -263,8 +275,157 @@ function shareReportWhatsApp() {
     text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
   });
 
-  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-  window.open(url, '_blank');
+  // 1. Native Web Share API: Opens Android's native share sheet directly over the app.
+  // The WebView never navigates anywhere. Returning from WhatsApp returns straight to Tamween!
+  if (navigator.share) {
+    try {
+      await navigator.share({
+        title: title,
+        text: text
+      });
+      showToast('تمت المشاركة بنجاح ✓', 'success');
+      return;
+    } catch (err) {
+      // User tapped cancel/back on share dialog
+      if (err.name === 'AbortError') return;
+      console.warn('Web Share fallback:', err);
+    }
+  }
+
+  // 2. Custom App Deep Link (whatsapp://send)
+  // Deep links invoke the Android WhatsApp app package directly without making any HTTP request.
+  // This physically prevents any HTTP 500 error from occurring in the WebView!
+  const encoded = encodeURIComponent(text);
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+
+  if (isMobile) {
+    const a = document.createElement('a');
+    a.href = `whatsapp://send?text=${encoded}`;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => {
+      if (document.body.contains(a)) document.body.removeChild(a);
+    }, 600);
+  } else {
+    window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank');
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  ACTION 4: Copy Report as Formatted Text
+// ══════════════════════════════════════════════════
+function copyReportText() {
+  const filtered = getFilteredReportUsers();
+  if (filtered.length === 0) {
+    showToast('لا توجد بيانات للنسخ', 'error');
+    return;
+  }
+
+  const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
+  const total = filtered.length;
+  const totalInd = filtered.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
+  const received = filtered.filter(u => u.receivedTamween).length;
+  const pending = total - received;
+
+  let text = `📦 *${title}*\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `👥 إجمالي المستفيدين: ${total}\n`;
+  text += `👨‍👩‍👧‍👦 إجمالي الأفراد: ${totalInd}\n`;
+  text += `✅ استلموا التموين: ${received}\n`;
+  text += `⏳ لم يستلموا: ${pending}\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  filtered.forEach((u, i) => {
+    const status = u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم';
+    const card = u.cardPass ? `(بطاقة: ${u.cardPass})` : '';
+    text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
+  });
+
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(() => {
+      showToast('تم نسخ نص التقرير بالكامل للحافظة ✓', 'success');
+    }).catch(() => {
+      fallbackCopyText(text);
+    });
+  } else {
+    fallbackCopyText(text);
+  }
+}
+
+function fallbackCopyText(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try {
+    document.execCommand('copy');
+    showToast('تم نسخ نص التقرير بالكامل للحافظة ✓', 'success');
+  } catch(e) {
+    showToast('تعذر النسخ تلقائياً', 'error');
+  }
+  document.body.removeChild(ta);
+}
+
+// ══════════════════════════════════════════════════
+//  ACTION 5: Download Offline HTML Report File
+//  Zero crash — Opens natively in Chrome on phone to print as PDF
+// ══════════════════════════════════════════════════
+function downloadReportHTML() {
+  const container = document.getElementById('report-preview-container');
+  if (!container || !container.innerHTML.trim()) {
+    showToast('يرجى توليد التقرير أولاً', 'error');
+    return;
+  }
+
+  const title = document.getElementById('report-preview-title') ? document.getElementById('report-preview-title').textContent : 'تقرير تموين';
+
+  const docHTML = `<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    @page { size: A4 portrait; margin: 8mm; }
+    * { box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+    body { background: #f1f5f9; padding: 16px; direction: rtl; margin: 0; color: #0f172a; }
+    .print-bar { max-width: 880px; margin: 0 auto 16px; display: flex; justify-content: space-between; align-items: center; background: #fff; padding: 12px 18px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.08); }
+    .btn { background: #1e40af; color: #fff; border: none; padding: 10px 22px; border-radius: 8px; font-weight: 800; font-size: 14px; cursor: pointer; }
+    .report-card { max-width: 880px; margin: 0 auto; background: #fff; border-radius: 10px; overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.08); }
+    @media print {
+      .print-bar { display: none !important; }
+      body { background: #fff; padding: 0; }
+      .report-card { box-shadow: none; border: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="print-bar">
+    <span style="font-weight:800;color:#1e40af;font-size:15px;">📄 ${title}</span>
+    <button class="btn" onclick="window.print()">🖨️ طباعة أو حفظ كـ PDF</button>
+  </div>
+  <div class="report-card">
+    ${container.innerHTML}
+  </div>
+</body>
+</html>`;
+
+  const blob = new Blob([docHTML], { type: 'text/html;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `tamween_report_${new Date().toISOString().slice(0, 10)}.html`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+
+  showToast('تم تنزيل ملف التقرير بنجاح ✓', 'success');
 }
 
 // ══════════════════════════════════════════════════
