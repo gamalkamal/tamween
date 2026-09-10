@@ -147,7 +147,7 @@
           <div class="stat-icon"><i class="fas fa-id-card"></i></div>
           <div class="stat-info">
             <div class="stat-num" id="stat-registered">0</div>
-            <div class="stat-label">مسجلون خارجياً</div>
+            <div class="stat-label">تم التسجيل على الماكينه</div>
           </div>
         </div>
       </div>
@@ -231,9 +231,27 @@
             <select id="report-year" onchange="generateReport()" class="select-full"></select>
           </div>
         </div>
-        <button class="btn-primary" onclick="exportPDF()">
-          <i class="fas fa-file-pdf"></i> تصدير PDF
-        </button>
+        <div class="form-row mt-8">
+          <div class="form-group">
+            <label>تصفية القسم</label>
+            <select id="report-section" onchange="generateReport()" class="select-full">
+              <option value="">جميع الأقسام</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>حالة الصرف</label>
+            <select id="report-status" onchange="generateReport()" class="select-full">
+              <option value="">جميع الحالات (الكل)</option>
+              <option value="received">تم صرف التموين فقط</option>
+              <option value="pending">لم يتم الصرف بعد</option>
+            </select>
+          </div>
+        </div>
+        <div class="mt-8" style="display:flex;gap:10px;justify-content:flex-end;">
+          <button class="btn-primary" onclick="exportPDF()">
+            <i class="fas fa-file-pdf"></i> طباعة وتصدير PDF
+          </button>
+        </div>
       </div>
       <div id="report-content">
         <div class="card mt-16">
@@ -244,8 +262,14 @@
           <table class="data-table" id="report-table">
             <thead>
               <tr>
-                <th>#</th><th>الاسم</th><th>القسم</th><th>الفئة</th>
-                <th>مسجل خارجياً</th><th>استلم التموين</th>
+                <th>#</th>
+                <th>الاسم الكامل</th>
+                <th>القسم</th>
+                <th>الفئة</th>
+                <th>بطاقة العبور</th>
+                <th>عدد الأفراد</th>
+                <th>تم التسجيل على الماكينه</th>
+                <th>استلم التموين</th>
               </tr>
             </thead>
             <tbody id="report-tbody"></tbody>
@@ -325,6 +349,16 @@
           </select>
         </div>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>بطاقة العبور</label>
+          <input type="text" id="user-card-pass" class="input-full" placeholder="رقم أو كود بطاقة العبور" />
+        </div>
+        <div class="form-group">
+          <label>عدد الأفراد</label>
+          <input type="number" id="user-individuals" class="input-full" min="1" value="1" placeholder="عدد أفراد الأسرة" />
+        </div>
+      </div>
       <div class="form-group">
         <label>العنوان</label>
         <input type="text" id="user-address" class="input-full" placeholder="العنوان" />
@@ -356,7 +390,7 @@
           <label class="check-item">
             <input type="checkbox" id="chk-external" onchange="saveChecklist()" />
             <span class="check-box"></span>
-            <span class="check-label">مسجل في النظام الخارجي</span>
+            <span class="check-label">تم التسجيل على الماكينه</span>
           </label>
           <label class="check-item">
             <input type="checkbox" id="chk-received" onchange="saveChecklist()" />
@@ -367,27 +401,24 @@
         <div class="card-pass-section">
           <div class="card-pass-header">
             <i class="fas fa-id-card"></i>
-            <span>بطاقة العبور</span>
-            <span class="badge-protected">محمية</span>
+            <span>بيانات بطاقة العبور وعدد الأفراد</span>
           </div>
-          <div id="card-pass-locked" class="card-pass-locked">
-            <input type="password" id="card-pass-input" placeholder="أدخل كلمة السر للعرض" class="input-full" />
-            <button class="btn-primary btn-sm" onclick="unlockCard()">
-              <i class="fas fa-unlock"></i> فتح
-            </button>
-            <div id="card-pass-error" class="error-msg hidden">كلمة السر غير صحيحة</div>
-          </div>
-          <div id="card-pass-content" class="card-pass-content hidden">
-            <div class="card-pass-value" id="card-pass-value"></div>
-            <button class="btn-secondary btn-sm" onclick="lockCard()">
-              <i class="fas fa-lock"></i> قفل
-            </button>
+          <div class="form-row" style="margin-bottom:12px;">
+            <div class="detail-item" style="background:#fff;border:1.5px solid var(--border);">
+              <div class="detail-item-label">رقم بطاقة العبور</div>
+              <div class="detail-item-value" id="card-pass-value" style="font-size:18px;color:var(--primary);font-weight:800;letter-spacing:1px;">—</div>
+            </div>
+            <div class="detail-item" style="background:#fff;border:1.5px solid var(--border);">
+              <div class="detail-item-label">عدد الأفراد المسجلين</div>
+              <div class="detail-item-value" id="individuals-value" style="font-size:18px;color:var(--primary);font-weight:800;">1</div>
+            </div>
           </div>
           <div class="form-group mt-8">
-            <label style="font-size:12px">تحديث بطاقة العبور</label>
+            <label style="font-size:12px">تحديث سريع للبطاقة وعدد الأفراد</label>
             <div class="input-row">
-              <input type="text" id="new-card-value" class="input-full" placeholder="رقم/نص بطاقة العبور" />
-              <button class="btn-primary btn-sm" onclick="updateCardPass()">
+              <input type="text" id="new-card-value" class="input-full" placeholder="رقم بطاقة العبور" />
+              <input type="number" id="new-individuals-value" class="input-full" style="max-width:110px;" min="1" placeholder="الأفراد" />
+              <button class="btn-primary btn-sm" onclick="updateCardPass()" title="حفظ">
                 <i class="fas fa-save"></i>
               </button>
             </div>
@@ -482,10 +513,10 @@
   }
 </script>
 
-<!-- v4.1-session - Load app scripts with version to bypass all caches -->
-<script src="js/data.js?v=4.1-session"></script>
-<script src="js/app.js?v=4.1-session"></script>
-<script src="js/reports.js?v=4.1-session"></script>
+<!-- v4.2-features - Load app scripts with version to bypass all caches -->
+<script src="js/data.js?v=4.2-features"></script>
+<script src="js/app.js?v=4.2-features"></script>
+<script src="js/reports.js?v=4.2-features"></script>
 
 </body>
 </html>
