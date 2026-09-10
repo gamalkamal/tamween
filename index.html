@@ -11,7 +11,7 @@
   <meta name="apple-mobile-web-app-title" content="تموين" />
   <meta name="description" content="نظام تموين لإدارة وتسجيل المستفيدين" />
   <link rel="manifest" href="manifest.json" />
-  <link rel="stylesheet" href="css/style.css" />
+  <link rel="stylesheet" href="css/style.css?v=3.0" />
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" />
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
@@ -467,17 +467,78 @@
 <!-- Toast -->
 <div id="toast" class="toast hidden"></div>
 
-<script src="js/data.js"></script>
-<script src="js/app.js"></script>
-<script src="js/reports.js"></script>
+<script src="js/data.js?v=3.0"></script>
+<script src="js/app.js?v=3.0"></script>
+<script src="js/reports.js?v=3.0"></script>
 <script>
+  // ===== APP VERSION & AUTO-UPDATE =====
+  const APP_VERSION = '3.0';
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('./sw.js')
-        .then(r => console.log('SW registered:', r.scope))
-        .catch(e => console.log('SW error:', e));
+      navigator.serviceWorker.register('./sw.js?v=3.0')
+        .then(reg => {
+          // Check for updates every 30 seconds
+          setInterval(() => reg.update(), 30000);
+
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                // New version available — show update banner
+                showUpdateBanner();
+              }
+            });
+          });
+        });
+
+      // When new SW takes control, reload the page automatically
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          window.location.reload();
+        }
+      });
     });
+  }
+
+  function showUpdateBanner() {
+    const banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.style.cssText = `
+      position:fixed; bottom:80px; left:50%; transform:translateX(-50%);
+      background:#1e40af; color:#fff; padding:14px 20px; border-radius:14px;
+      font-family:'Cairo',sans-serif; font-size:14px; font-weight:700;
+      z-index:9999; box-shadow:0 8px 24px rgba(0,0,0,0.3);
+      display:flex; align-items:center; gap:12px; direction:rtl;
+      animation:slideUp 0.4s ease;
+    `;
+    banner.innerHTML = `
+      <span>🔄 يوجد تحديث جديد للتطبيق</span>
+      <button onclick="applyUpdate()" style="
+        background:#fff; color:#1e40af; border:none; padding:7px 16px;
+        border-radius:8px; font-weight:800; font-family:'Cairo',sans-serif;
+        cursor:pointer; font-size:13px;
+      ">تحديث الآن</button>
+      <button onclick="this.parentElement.remove()" style="
+        background:rgba(255,255,255,0.2); color:#fff; border:none;
+        width:28px; height:28px; border-radius:50%; cursor:pointer; font-size:16px;
+      ">×</button>
+    `;
+    document.body.appendChild(banner);
+  }
+
+  function applyUpdate() {
+    navigator.serviceWorker.ready.then(reg => {
+      if (reg.waiting) {
+        reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      }
+    });
+    // Force hard reload as fallback
+    setTimeout(() => window.location.reload(true), 500);
   }
 </script>
 </body>
 </html>
+
