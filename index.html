@@ -121,6 +121,26 @@
 
     <!-- DASHBOARD -->
     <div id="page-dashboard" class="page active">
+      <!-- Active Month Cycle Bar -->
+      <div style="background:#ffffff;border-radius:14px;padding:12px 18px;margin-bottom:16px;box-shadow:0 2px 10px rgba(0,0,0,0.06);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;border:1.5px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:10px;">
+          <div style="width:38px;height:38px;background:rgba(37,99,235,0.1);color:var(--primary);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;">
+            <i class="fas fa-calendar-alt"></i>
+          </div>
+          <div>
+            <div style="font-size:11px;color:var(--text-muted);font-weight:600;">دورة التوزيع النشطة</div>
+            <div style="font-size:15px;font-weight:800;color:var(--text);" id="dash-active-month-text">جاري التحميل...</div>
+          </div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <select id="active-month-dash" onchange="changeActiveMonth(this.value)" style="padding:8px 14px;border-radius:8px;border:1.5px solid var(--border);font-weight:700;font-size:13px;background:#f8fafc;color:var(--text);cursor:pointer;">
+          </select>
+          <button class="btn-secondary btn-sm" onclick="copyMachineStatusFromPrevious()" title="نسخ المسجلين على الماكينة من الشهر السابق" style="font-size:12px;padding:8px 12px;">
+            <i class="fas fa-copy"></i> نسخ حالة الماكينة من الشهر السابق
+          </button>
+        </div>
+      </div>
+
       <div class="stats-grid">
         <div class="stat-card blue">
           <div class="stat-icon"><i class="fas fa-users"></i></div>
@@ -153,8 +173,7 @@
       </div>
       <div class="card mt-16">
         <div class="card-header">
-          <h3>نظرة عامة على التموين</h3>
-          <select id="dash-month-select" onchange="updateDashChart()" class="select-sm"></select>
+          <h3>نظرة عامة على التموين بحسب الأقسام</h3>
         </div>
         <canvas id="dashChart" height="200"></canvas>
       </div>
@@ -169,6 +188,16 @@
 
     <!-- USERS -->
     <div id="page-users" class="page hidden">
+      <!-- Active Month Bar for Users -->
+      <div style="background:#ffffff;border-radius:12px;padding:10px 16px;margin-bottom:12px;box-shadow:0 1px 6px rgba(0,0,0,0.05);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;border:1.5px solid var(--border);">
+        <div style="display:flex;align-items:center;gap:8px;font-size:13px;font-weight:700;color:var(--text);">
+          <i class="fas fa-calendar-check" style="color:var(--primary);font-size:16px;"></i>
+          <span>حالة الصرف والماكينة لدورة شهر:</span>
+        </div>
+        <select id="active-month-users" onchange="changeActiveMonth(this.value)" style="padding:6px 14px;border-radius:8px;border:1.5px solid var(--border);font-weight:700;font-size:13px;background:#f8fafc;color:var(--text);cursor:pointer;">
+        </select>
+      </div>
+
       <div class="page-actions">
         <div class="search-wrap">
           <i class="fas fa-search"></i>
@@ -385,7 +414,7 @@
     <div class="modal-body">
       <div class="detail-info-grid" id="detail-info"></div>
       <div class="checklist-section">
-        <h4 class="section-title"><i class="fas fa-tasks"></i> قائمة المتابعة</h4>
+        <h4 class="section-title"><i class="fas fa-tasks"></i> متابعة دورة شهر: <span id="detail-month-label" style="color:var(--primary);font-weight:800;"></span></h4>
         <div class="checklist">
           <label class="check-item">
             <input type="checkbox" id="chk-external" onchange="saveChecklist()" />
@@ -555,10 +584,10 @@
   }
 </script>
 
-<!-- v5.2-whatsapp500-fix - Load app scripts with version to bypass all caches -->
-<script src="js/data.js?v=5.2-whatsapp500-fix"></script>
-<script src="js/app.js?v=5.2-whatsapp500-fix"></script>
-<script src="js/reports.js?v=5.2-whatsapp500-fix"></script>
+<!-- v6.0-monthly-cycles - Load app scripts with version to bypass all caches -->
+<script src="js/data.js?v=6.0-monthly-cycles"></script>
+<script src="js/app.js?v=6.0-monthly-cycles"></script>
+<script src="js/reports.js?v=6.0-monthly-cycles"></script>
 
 </body>
 </html>
