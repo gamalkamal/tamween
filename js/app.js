@@ -20,6 +20,7 @@ function initials(name) {
 // ---- Init ----
 window.addEventListener('DOMContentLoaded', () => {
   DB.init();
+  startFirestoreSync(); // Pre-load cloud data in background during splash
   setTimeout(() => {
     document.getElementById('splash-screen').style.opacity = '0';
     setTimeout(() => {
@@ -29,6 +30,33 @@ window.addEventListener('DOMContentLoaded', () => {
   }, 1800);
   populateMonthSelect('dash-month-select');
 });
+
+// ---- Start Firestore real-time sync ----
+let syncStarted = false;
+function startFirestoreSync() {
+  if (syncStarted) return;
+  syncStarted = true;
+  DB.startListeners((changed) => {
+    // Only update UI elements if the user is currently logged in and viewing the app
+    const appEl = document.getElementById('app');
+    if (!appEl || appEl.classList.contains('hidden')) return;
+
+    if (changed === 'users') {
+      renderUsers();
+      renderDashboard();
+    }
+    if (changed === 'sections') {
+      renderSections();
+      populateFilterDropdowns();
+    }
+    if (changed === 'categories') {
+      renderCategories();
+      populateFilterDropdowns();
+    }
+  });
+}
+
+
 
 // ---- Login ----
 function doLogin() {
@@ -41,6 +69,7 @@ function doLogin() {
     document.getElementById('login-screen').classList.add('hidden');
     document.getElementById('app').classList.remove('hidden');
     document.getElementById('sidebar-role').textContent = 'مشرف النظام';
+    startFirestoreSync(); // start real-time sync
     initApp();
   } else {
     err.classList.remove('hidden');
