@@ -38,69 +38,105 @@ function savePdfSmart(doc, fileName) {
   }
 }
 
-// Native Mobile Share / Save
-async function shareCurrentPDF() {
-  if (!currentPdfBlob) {
-    // If PDF doc isn't built yet, build it now
-    showToast('جاري تجهيز الملف للمشاركة...', 'info');
-    await buildPdfFromPreview();
-  }
-
-  if (!currentPdfBlob) {
-    showToast('تعذر تجهيز ملف PDF', 'error');
+// 1. Save Report as High-Res Image (PNG - Works 100% on all Android phones & Gallery)
+async function saveReportAsImage() {
+  const container = document.getElementById('report-preview-container');
+  if (!container || !container.innerHTML) {
+    showToast('لا يوجد تقرير للحفظ', 'error');
     return;
   }
+  showToast('جاري حفظ صورة التقرير عالية الدقة...', 'info');
 
-  const file = new File([currentPdfBlob], currentPdfFileName, { type: 'application/pdf' });
+  try {
+    const canvas = await html2canvas(container, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: '#ffffff',
+      logging: false
+    });
 
-  if (navigator.canShare && navigator.canShare({ files: [file] })) {
-    try {
-      await navigator.share({
-        files: [file],
-        title: 'تقرير تموين',
-        text: currentPdfFileName
-      });
-      showToast('تمت المشاركة بنجاح ✓', 'success');
-      return;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        console.warn('Share error:', err);
-      } else {
-        return; // User dismissed native share sheet
-      }
+    const imgData = canvas.toDataURL('image/png');
+    const imgName = `${(currentPdfFileName || 'tamween_report').replace('.pdf', '')}.png`;
+
+    // If mobile supports sharing files (Android native share to Photos / Drive / WhatsApp)
+    if (navigator.canShare) {
+      canvas.toBlob(async (blob) => {
+        if (!blob) return;
+        const file = new File([blob], imgName, { type: 'image/png' });
+        if (navigator.canShare({ files: [file] })) {
+          try {
+            await navigator.share({
+              files: [file],
+              title: 'تقرير تموين',
+              text: 'صورة تقرير تموين'
+            });
+            showToast('تمت مشاركة صورة التقرير بنجاح ✓', 'success');
+            return;
+          } catch (e) {
+            if (e.name === 'AbortError') return;
+          }
+        }
+        // Fallback: direct download link
+        const a = document.createElement('a');
+        a.href = imgData;
+        a.download = imgName;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        showToast('تم حفظ الصورة في مجلد الصور والتنزيلات ✓', 'success');
+      }, 'image/png');
+    } else {
+      const a = document.createElement('a');
+      a.href = imgData;
+      a.download = imgName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      showToast('تم حفظ الصورة بنجاح ✓', 'success');
     }
+  } catch (err) {
+    console.error('Image capture error:', err);
+    showToast('حدث خطأ أثناء حفظ الصورة: ' + err.message, 'error');
   }
-
-  // Fallback: download directly
-  downloadCurrentPDF();
 }
 
-// Native Print / Save as PDF
-function printCurrentReport() {
+// 2. Send Report Summary directly to WhatsApp
+function shareReportWhatsApp() {
+  const filtered = getFilteredReportUsers();
+  const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
+  const total = filtered.length;
+  const totalInd = filtered.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
+  const received = filtered.filter(u => u.receivedTamween).length;
+  const pending = total - received;
+
+  let text = `📦 *${title}*\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `👥 إجمالي المستفيدين: ${total}\n`;
+  text += `👨‍👩‍👧‍👦 إجمالي الأفراد: ${totalInd}\n`;
+  text += `✅ استلموا التموين: ${received}\n`;
+  text += `⏳ لم يستلموا: ${pending}\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  filtered.forEach((u, i) => {
+    const status = u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم';
+    const card = u.cardPass ? `(بطاقة: ${u.cardPass})` : '';
+    text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
+  });
+
+  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+
+// 3. Open Clean Report Page in Browser for 100% Native Printing / Save as PDF
+function openPrintInBrowser() {
   const container = document.getElementById('report-preview-container');
   if (!container || !container.innerHTML) {
     showToast('لا يوجد تقرير للطباعة', 'error');
     return;
   }
 
-  let printFrame = document.getElementById('report-print-frame');
-  if (printFrame) {
-    try { document.body.removeChild(printFrame); } catch(e) {}
-  }
-
-  printFrame = document.createElement('iframe');
-  printFrame.id = 'report-print-frame';
-  printFrame.style.position = 'fixed';
-  printFrame.style.right = '0';
-  printFrame.style.bottom = '0';
-  printFrame.style.width = '0';
-  printFrame.style.height = '0';
-  printFrame.style.border = '0';
-  document.body.appendChild(printFrame);
-
-  const frameDoc = printFrame.contentWindow.document;
-  frameDoc.open();
-  frameDoc.write(`
+  const printHTML = `
     <!DOCTYPE html>
     <html dir="rtl" lang="ar">
     <head>
@@ -108,42 +144,56 @@ function printCurrentReport() {
       <title>${currentPdfFileName || 'تقرير تموين'}</title>
       <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
       <style>
-        @page { size: A4 portrait; margin: 8mm; }
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', sans-serif; }
-        body { direction: rtl; background: #ffffff; padding: 0; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; page-break-inside: auto; }
-        tr { page-break-inside: avoid; page-break-after: auto; }
-        th, td { padding: 8px 6px; border-bottom: 1px solid #e2e8f0; }
+        @page { size: A4 portrait; margin: 10mm; }
+        * { box-sizing: border-box; font-family: 'Cairo', sans-serif; }
+        body { direction: rtl; background: #ffffff; padding: 20px; text-align: right; }
+        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 15px; }
+        th, td { padding: 10px 8px; border: 1px solid #cbd5e1; text-align: right; }
+        th { background: #1e40af; color: #ffffff; font-weight: 700; }
+        @media print {
+          .no-print { display: none !important; }
+          body { padding: 0; }
+        }
       </style>
     </head>
     <body>
+      <div class="no-print" style="text-align:center;margin-bottom:24px;padding:16px;background:#eff6ff;border-radius:12px;border:1.5px dashed #3b82f6;">
+        <button onclick="window.print()" style="background:#1e40af;color:#ffffff;padding:14px 28px;border:none;border-radius:10px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(30,64,175,0.3);">
+          🖨️ اضغط هنا للطباعة أو الحفظ كـ PDF
+        </button>
+        <div style="font-size:12px;color:#64748b;margin-top:8px;">سيفتح مربع الطباعة في جهازك، يمكنك اختيار "حفظ بتنسيق PDF" مباشرة</div>
+      </div>
       ${container.innerHTML}
     </body>
     </html>
-  `);
-  frameDoc.close();
+  `;
 
-  setTimeout(() => {
-    printFrame.contentWindow.focus();
-    printFrame.contentWindow.print();
-    setTimeout(() => {
-      try { document.body.removeChild(printFrame); } catch(e) {}
-    }, 2000);
-  }, 400);
+  const blob = new Blob([printHTML], { type: 'text/html;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, '_blank');
+  if (!win || win.closed) {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'تقرير_تموين_للطباعة.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    showToast('تم تنزيل صفحة الطباعة — افتحها بالمتصفح للطباعة المباشرة ✓', 'info');
+  }
 }
 
-// Direct Download action
+// 4. Direct PDF Download
 async function downloadCurrentPDF() {
   if (!currentPdfDoc) {
     showToast('جاري بناء ملف PDF...', 'info');
     await buildPdfFromPreview();
   }
   if (!currentPdfDoc) {
-    showToast('تعذر إنشاء ملف PDF', 'error');
+    showToast('تعذر إنشاء ملف PDF — يمكنك استخدام زر حفظ كصورة أو فتح للطباعة', 'error');
     return;
   }
   savePdfSmart(currentPdfDoc, currentPdfFileName);
-  showToast('بدأ تحميل ملف PDF في جهازك ✓', 'success');
+  showToast('بدأ تحميل ملف PDF ✓', 'success');
 }
 
 // Builds the PDF from the visible in-app preview container
