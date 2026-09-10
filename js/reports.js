@@ -159,11 +159,11 @@ function generateReport() {
 //  Zero memory overhead — Never crashes
 // ══════════════════════════════════════════════════
 function openPrintPage() {
-  saveReportDataForPrinting();
-  const win = window.open('print.html', '_blank');
+  const hash = saveReportDataForPrinting();
+  const targetUrl = 'print.html' + hash;
+  const win = window.open(targetUrl, '_blank');
   if (!win || win.closed) {
-    // If popup was blocked by WebView, redirect or direct navigate
-    window.location.href = 'print.html';
+    window.location.href = targetUrl;
   }
 }
 
@@ -180,11 +180,14 @@ function saveReportDataForPrinting() {
     categories: DB.getCategories()
   };
 
+  const json = JSON.stringify(reportData);
   try {
-    localStorage.setItem('tamween_print_data', JSON.stringify(reportData));
+    localStorage.setItem('tamween_print_data', json);
   } catch (e) {
     console.warn('Print data storage warning:', e);
   }
+
+  return '#data=' + encodeURIComponent(json);
 }
 
 // ══════════════════════════════════════════════════
