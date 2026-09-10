@@ -8,7 +8,7 @@
   <style>
     @page {
       size: A4 portrait;
-      margin: 10mm 10mm 15mm 10mm;
+      margin: 8mm 8mm 12mm 8mm;
     }
     * {
       box-sizing: border-box;
@@ -18,19 +18,19 @@
     }
     body {
       direction: rtl;
-      background: #f8fafc;
+      background: #f1f5f9;
       color: #0f172a;
-      padding: 20px;
+      padding: 16px;
     }
 
-    /* Print toolbar (hidden during actual print / PDF saving) */
+    /* Print toolbar */
     .no-print-bar {
       max-width: 900px;
-      margin: 0 auto 20px auto;
+      margin: 0 auto 16px auto;
       background: #ffffff;
       padding: 16px 20px;
-      border-radius: 12px;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+      border-radius: 14px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -38,33 +38,35 @@
       gap: 12px;
       border: 1.5px solid #e2e8f0;
     }
+    .btn {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: all 0.2s;
+    }
+    .btn-chrome {
+      background: #0284c7;
+      color: #ffffff;
+      box-shadow: 0 3px 10px rgba(2,132,199,0.3);
+    }
     .btn-print {
       background: #1e40af;
       color: #ffffff;
-      padding: 12px 28px;
-      border: none;
-      border-radius: 8px;
-      font-size: 16px;
-      font-weight: 800;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      box-shadow: 0 4px 12px rgba(30,64,175,0.3);
-      transition: background 0.2s;
+      box-shadow: 0 3px 10px rgba(30,64,175,0.3);
     }
-    .btn-print:hover {
-      background: #1e3a8a;
+    .btn-excel {
+      background: #059669;
+      color: #ffffff;
     }
-    .btn-close {
-      background: #f1f5f9;
-      color: #475569;
-      padding: 10px 20px;
-      border: 1px solid #cbd5e1;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 700;
-      cursor: pointer;
+    .btn-back {
+      background: #64748b;
+      color: #ffffff;
     }
 
     /* Printable Report Paper */
@@ -161,6 +163,7 @@
     /* Table */
     .table-wrap {
       padding: 16px 24px 24px;
+      overflow-x: auto;
     }
     table {
       width: 100%;
@@ -252,14 +255,22 @@
   <!-- Screen Top Bar -->
   <div class="no-print-bar">
     <div>
-      <div style="font-weight:800;font-size:16px;color:#1e40af;">جاهز للطباعة والحفظ</div>
-      <div style="font-size:12px;color:#64748b;">اضغط على الزر الأخضر أو الأزرق لحفظ التقرير كـ PDF مباشرة</div>
+      <div style="font-weight:900;font-size:16px;color:#1e40af;">خيارات الطباعة والحفظ</div>
+      <div style="font-size:12px;color:#64748b;">إذا لم تعمل الطباعة داخل التطبيق، اضغط "فتح في كروم" للحفظ كـ PDF</div>
     </div>
-    <div style="display:flex;gap:8px;">
-      <button class="btn-print" onclick="window.print()">
-        🖨️ طباعة أو حفظ بتنسيق PDF
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-chrome" onclick="openInChrome()">
+        🌐 فتح في كروم للطباعة كـ PDF
       </button>
-      <button class="btn-close" onclick="window.close()">إغلاق</button>
+      <button class="btn btn-print" onclick="doPrint()">
+        🖨️ طباعة
+      </button>
+      <button class="btn btn-excel" onclick="downloadCsvFromPrint()">
+        📊 تنزيل Excel
+      </button>
+      <button class="btn btn-back" onclick="goBackToApp()">
+        ✖ عودة للتطبيق
+      </button>
     </div>
   </div>
 
@@ -336,15 +347,106 @@
   </div>
 
   <script>
-    window.addEventListener('DOMContentLoaded', () => {
+    let globalReportData = null;
+
+    function loadReportData() {
+      // 1. Try URL hash first (passed when opening in Chrome from APK)
+      if (window.location.hash && window.location.hash.startsWith('#data=')) {
+        try {
+          const rawJson = decodeURIComponent(window.location.hash.slice(6));
+          return JSON.parse(rawJson);
+        } catch(e) {
+          console.warn('Hash parse warning:', e);
+        }
+      }
+
+      // 2. Try localStorage
       try {
         const raw = localStorage.getItem('tamween_print_data');
-        if (!raw) {
+        if (raw) return JSON.parse(raw);
+      } catch(e) {}
+
+      return null;
+    }
+
+    function doPrint() {
+      try {
+        window.print();
+      } catch(e) {
+        alert('متصفح التطبيق لا يدعم أمر الطباعة المباشر. يرجى الضغط على زر "فتح في كروم للطباعة كـ PDF" بالأعلى.');
+      }
+    }
+
+    function openInChrome() {
+      const host = window.location.host;
+      const path = window.location.pathname;
+      const hash = window.location.hash || ('#data=' + encodeURIComponent(localStorage.getItem('tamween_print_data') || '{}'));
+
+      const chromeIntent = `intent://${host}${path}${hash}#Intent;scheme=https;package=com.android.chrome;end`;
+      const browserIntent = `intent://${host}${path}${hash}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
+
+      try {
+        window.location.href = chromeIntent;
+        setTimeout(() => {
+          window.location.href = browserIntent;
+        }, 1200);
+      } catch(e) {
+        window.open(window.location.href, '_system');
+      }
+    }
+
+    function goBackToApp() {
+      window.location.href = 'index.html';
+    }
+
+    function downloadCsvFromPrint() {
+      if (!globalReportData || !globalReportData.users) {
+        alert('لا توجد بيانات لتنزيلها');
+        return;
+      }
+
+      const users = globalReportData.users;
+      const sections = globalReportData.sections || [];
+      const categories = globalReportData.categories || [];
+
+      let csv = '\uFEFF';
+      csv += '#,الاسم الكامل,القسم,الفئة,بطاقة العبور,عدد الأفراد,تم التسجيل على الماكينه,استلم التموين\n';
+
+      users.forEach((u, i) => {
+        const sec = sections.find(s => s.id === u.section);
+        const cat = categories.find(c => c.id === u.category);
+        const name = `"${(u.name || '').replace(/"/g, '""')}"`;
+        const secName = `"${(sec ? sec.name : '—').replace(/"/g, '""')}"`;
+        const catName = `"${(cat ? cat.name : '—').replace(/"/g, '""')}"`;
+        const card = `"${(u.cardPass || '').replace(/"/g, '""')}"`;
+        const ind = u.individuals || 1;
+        const mach = u.registeredExternal ? 'نعم' : 'لا';
+        const rec = u.receivedTamween ? 'نعم' : 'لا';
+
+        csv += `${i + 1},${name},${secName},${catName},${card},${ind},${mach},${rec}\n`;
+      });
+
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tamween_report_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 3000);
+    }
+
+    window.addEventListener('DOMContentLoaded', () => {
+      try {
+        const data = loadReportData();
+        globalReportData = data;
+
+        if (!data) {
           document.getElementById('report-tbody').innerHTML = '<tr><td colspan="8" style="text-align:center;padding:30px;color:#ef4444;">لم يتم العثور على بيانات التقرير. يرجى العودة للتطبيق والضغط على طباعة.</td></tr>';
           return;
         }
 
-        const data = JSON.parse(raw);
         document.getElementById('hdr-title').textContent = data.title || 'تقرير المستفيدين';
         document.getElementById('hdr-date').textContent = 'تاريخ الطباعة: ' + (data.date || new Date().toLocaleDateString('ar-SA-u-nu-latn'));
         document.getElementById('hdr-time').textContent = 'الوقت: ' + (data.time || new Date().toLocaleTimeString('ar-SA-u-nu-latn'));
@@ -397,10 +499,12 @@
           }).join('');
         }
 
-        // Auto trigger print after 600ms
-        setTimeout(() => {
-          window.print();
-        }, 600);
+        // If opened in external Chrome (not WebView), trigger print
+        if (!/wv/.test(navigator.userAgent) && /Chrome/.test(navigator.userAgent)) {
+          setTimeout(() => {
+            try { window.print(); } catch(e) {}
+          }, 800);
+        }
 
       } catch (err) {
         console.error(err);
