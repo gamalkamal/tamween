@@ -18,20 +18,29 @@ function formatMonthKey(key) {
 
 function populateActiveMonthSelectors() {
   const now = new Date();
-  const options = [];
-  for (let i = -6; i <= 3; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = formatMonthKey(key) + (i === 0 ? ' (الشهر الحالي)' : '');
-    options.push({ key, label });
-  }
+  const currentYear = now.getFullYear();
+  const currentMonthIdx = now.getMonth();
+
+  // Support previous year, current year (all 12 months: January through December), and next year
+  const years = [currentYear - 1, currentYear, currentYear + 1];
+  let html = '';
+
+  years.forEach(y => {
+    html += `<optgroup label="سنة ${y}">`;
+    for (let m = 0; m < 12; m++) {
+      const key = `${y}-${String(m + 1).padStart(2, '0')}`;
+      const isCurrent = (y === currentYear && m === currentMonthIdx);
+      const isSelected = (key === currentMonthKey);
+      const label = `${MONTH_NAMES_AR[m]} ${y}` + (isCurrent ? ' (الشهر الحالي)' : '');
+      html += `<option value="${key}" ${isSelected ? 'selected' : ''}>${label}</option>`;
+    }
+    html += `</optgroup>`;
+  });
 
   ['active-month-dash', 'active-month-users'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    el.innerHTML = options.map(o =>
-      `<option value="${o.key}" ${o.key === currentMonthKey ? 'selected' : ''}>${o.label}</option>`
-    ).join('');
+    el.innerHTML = html;
   });
 }
 
