@@ -1,266 +1,4 @@
-/* ===== REPORTS & PDF ===== */
-
-let currentPdfDoc = null;
-let currentPdfBlob = null;
-let currentPdfFileName = '';
-let currentReportHTML = '';
-
-// Detect Android WebView / PWA environment
-function isAndroidWebView() {
-  const ua = navigator.userAgent || '';
-  return /Android/.test(ua) && (/wv/.test(ua) || /Version\/[\d.]+.*Chrome/.test(ua) || window.Android !== undefined);
-}
-
-// Smart PDF saver: direct download
-function savePdfSmart(doc, fileName) {
-  try {
-    const blob = doc.output('blob');
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = fileName;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 4000);
-  } catch(e) {
-    try {
-      const dataUri = doc.output('datauristring');
-      const a = document.createElement('a');
-      a.href = dataUri;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-    } catch(err) {
-      console.warn('Download error:', err);
-    }
-  }
-}
-
-// 1. Save Report as High-Res Image (PNG - Works 100% on all Android phones & Gallery)
-async function saveReportAsImage() {
-  const container = document.getElementById('report-preview-container');
-  if (!container || !container.innerHTML) {
-    showToast('لا يوجد تقرير للحفظ', 'error');
-    return;
-  }
-  showToast('جاري حفظ صورة التقرير عالية الدقة...', 'info');
-
-  try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: '#ffffff',
-      logging: false
-    });
-
-    const imgData = canvas.toDataURL('image/png');
-    const imgName = `${(currentPdfFileName || 'tamween_report').replace('.pdf', '')}.png`;
-
-    // If mobile supports sharing files (Android native share to Photos / Drive / WhatsApp)
-    if (navigator.canShare) {
-      canvas.toBlob(async (blob) => {
-        if (!blob) return;
-        const file = new File([blob], imgName, { type: 'image/png' });
-        if (navigator.canShare({ files: [file] })) {
-          try {
-            await navigator.share({
-              files: [file],
-              title: 'تقرير تموين',
-              text: 'صورة تقرير تموين'
-            });
-            showToast('تمت مشاركة صورة التقرير بنجاح ✓', 'success');
-            return;
-          } catch (e) {
-            if (e.name === 'AbortError') return;
-          }
-        }
-        // Fallback: direct download link
-        const a = document.createElement('a');
-        a.href = imgData;
-        a.download = imgName;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        showToast('تم حفظ الصورة في مجلد الصور والتنزيلات ✓', 'success');
-      }, 'image/png');
-    } else {
-      const a = document.createElement('a');
-      a.href = imgData;
-      a.download = imgName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      showToast('تم حفظ الصورة بنجاح ✓', 'success');
-    }
-  } catch (err) {
-    console.error('Image capture error:', err);
-    showToast('حدث خطأ أثناء حفظ الصورة: ' + err.message, 'error');
-  }
-}
-
-// 2. Send Report Summary directly to WhatsApp
-function shareReportWhatsApp() {
-  const filtered = getFilteredReportUsers();
-  const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
-  const total = filtered.length;
-  const totalInd = filtered.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
-  const received = filtered.filter(u => u.receivedTamween).length;
-  const pending = total - received;
-
-  let text = `📦 *${title}*\n`;
-  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
-  text += `👥 إجمالي المستفيدين: ${total}\n`;
-  text += `👨‍👩‍👧‍👦 إجمالي الأفراد: ${totalInd}\n`;
-  text += `✅ استلموا التموين: ${received}\n`;
-  text += `⏳ لم يستلموا: ${pending}\n`;
-  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
-
-  filtered.forEach((u, i) => {
-    const status = u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم';
-    const card = u.cardPass ? `(بطاقة: ${u.cardPass})` : '';
-    text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
-  });
-
-  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
-  window.open(url, '_blank');
-}
-
-// 3. Open Clean Report Page in Browser for 100% Native Printing / Save as PDF
-function openPrintInBrowser() {
-  const container = document.getElementById('report-preview-container');
-  if (!container || !container.innerHTML) {
-    showToast('لا يوجد تقرير للطباعة', 'error');
-    return;
-  }
-
-  const printHTML = `
-    <!DOCTYPE html>
-    <html dir="rtl" lang="ar">
-    <head>
-      <meta charset="UTF-8">
-      <title>${currentPdfFileName || 'تقرير تموين'}</title>
-      <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet" />
-      <style>
-        @page { size: A4 portrait; margin: 10mm; }
-        * { box-sizing: border-box; font-family: 'Cairo', sans-serif; }
-        body { direction: rtl; background: #ffffff; padding: 20px; text-align: right; }
-        table { width: 100%; border-collapse: collapse; font-size: 12px; margin-top: 15px; }
-        th, td { padding: 10px 8px; border: 1px solid #cbd5e1; text-align: right; }
-        th { background: #1e40af; color: #ffffff; font-weight: 700; }
-        @media print {
-          .no-print { display: none !important; }
-          body { padding: 0; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="no-print" style="text-align:center;margin-bottom:24px;padding:16px;background:#eff6ff;border-radius:12px;border:1.5px dashed #3b82f6;">
-        <button onclick="window.print()" style="background:#1e40af;color:#ffffff;padding:14px 28px;border:none;border-radius:10px;font-size:16px;font-weight:800;cursor:pointer;box-shadow:0 4px 12px rgba(30,64,175,0.3);">
-          🖨️ اضغط هنا للطباعة أو الحفظ كـ PDF
-        </button>
-        <div style="font-size:12px;color:#64748b;margin-top:8px;">سيفتح مربع الطباعة في جهازك، يمكنك اختيار "حفظ بتنسيق PDF" مباشرة</div>
-      </div>
-      ${container.innerHTML}
-    </body>
-    </html>
-  `;
-
-  const blob = new Blob([printHTML], { type: 'text/html;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const win = window.open(url, '_blank');
-  if (!win || win.closed) {
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'تقرير_تموين_للطباعة.html';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    showToast('تم تنزيل صفحة الطباعة — افتحها بالمتصفح للطباعة المباشرة ✓', 'info');
-  }
-}
-
-// 4. Direct PDF Download
-async function downloadCurrentPDF() {
-  if (!currentPdfDoc) {
-    showToast('جاري بناء ملف PDF...', 'info');
-    await buildPdfFromPreview();
-  }
-  if (!currentPdfDoc) {
-    showToast('تعذر إنشاء ملف PDF — يمكنك استخدام زر حفظ كصورة أو فتح للطباعة', 'error');
-    return;
-  }
-  savePdfSmart(currentPdfDoc, currentPdfFileName);
-  showToast('بدأ تحميل ملف PDF ✓', 'success');
-}
-
-// Builds the PDF from the visible in-app preview container
-async function buildPdfFromPreview() {
-  const container = document.getElementById('report-preview-container');
-  if (!container || !container.innerHTML) return null;
-
-  try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: '#ffffff',
-      logging: false
-    });
-
-    if (!canvas || canvas.width === 0 || canvas.height === 0) {
-      throw new Error('Canvas capture empty');
-    }
-
-    const { jsPDF } = window.jspdf;
-    const pageW = 210;
-    const pageH = 297;
-    const imgH = (canvas.height * pageW) / canvas.width;
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-
-    if (imgH <= pageH) {
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
-      doc.addImage(imgData, 'JPEG', 0, 0, pageW, imgH);
-    } else {
-      const pageCanvasHeight = (canvas.width * pageH) / pageW;
-      let renderedHeight = 0;
-      let pageIndex = 0;
-
-      while (renderedHeight < canvas.height) {
-        if (pageIndex > 0) doc.addPage();
-
-        const chunkHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight);
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = canvas.width;
-        pageCanvas.height = pageCanvasHeight;
-        const pageCtx = pageCanvas.getContext('2d');
-        pageCtx.fillStyle = '#ffffff';
-        pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-
-        pageCtx.drawImage(
-          canvas,
-          0, renderedHeight, canvas.width, chunkHeight,
-          0, 0, canvas.width, chunkHeight
-        );
-
-        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
-        doc.addImage(pageImgData, 'JPEG', 0, 0, pageW, pageH);
-
-        renderedHeight += pageCanvasHeight;
-        pageIndex++;
-      }
-    }
-
-    currentPdfDoc = doc;
-    currentPdfBlob = doc.output('blob');
-    return doc;
-  } catch (err) {
-    console.error('PDF build error:', err);
-    return null;
-  }
-}
+/* ===== REPORTS & PRINTING (Optimized: Zero Memory Crash) ===== */
 
 let reportChartInstance = null;
 
@@ -270,13 +8,13 @@ const MONTHS_AR = ['يناير','فبراير','مارس','أبريل','مايو
 function initReports() {
   const now = new Date();
   const monthSel = document.getElementById('report-month');
-  monthSel.innerHTML = MONTHS_AR.map((m,i) =>
-    `<option value="${i}" ${i===now.getMonth()?'selected':''}>${m}</option>`
+  monthSel.innerHTML = MONTHS_AR.map((m, i) =>
+    `<option value="${i}" ${i === now.getMonth() ? 'selected' : ''}>${m}</option>`
   ).join('');
   const yearSel = document.getElementById('report-year');
   const currentYear = now.getFullYear();
-  yearSel.innerHTML = [currentYear-1, currentYear, currentYear+1].map(y =>
-    `<option value="${y}" ${y===currentYear?'selected':''}>${y}</option>`
+  yearSel.innerHTML = [currentYear - 1, currentYear, currentYear + 1].map(y =>
+    `<option value="${y}" ${y === currentYear ? 'selected' : ''}>${y}</option>`
   ).join('');
 
   document.getElementById('report-type').addEventListener('change', function() {
@@ -403,20 +141,133 @@ function generateReport() {
     const ind = parseInt(u.individuals) || 1;
     return `
     <tr>
-      <td>${i+1}</td>
+      <td>${i + 1}</td>
       <td style="font-weight:700;">${u.name}</td>
       <td>${sec ? sec.name : '—'}</td>
       <td>${cat ? cat.name : '—'}</td>
       <td style="font-family:monospace;font-weight:700;color:var(--primary);">${u.cardPass || '—'}</td>
       <td style="font-weight:700;">${ind}</td>
-      <td style="color:${u.registeredExternal?'#10b981':'#ef4444'};font-weight:700">${u.registeredExternal ? '✔ نعم' : '✘ لا'}</td>
-      <td style="color:${u.receivedTamween?'#10b981':'#ef4444'};font-weight:700">${u.receivedTamween ? '✔ نعم' : '✘ لا'}</td>
+      <td style="color:${u.registeredExternal ? '#10b981' : '#ef4444'};font-weight:700">${u.registeredExternal ? '✔ نعم' : '✘ لا'}</td>
+      <td style="color:${u.receivedTamween ? '#10b981' : '#ef4444'};font-weight:700">${u.receivedTamween ? '✔ نعم' : '✘ لا'}</td>
     </tr>`;
   }).join('');
 }
 
-// ===== MAIN EXPORT & PREVIEW ACTION =====
-async function exportPDF() {
+// ══════════════════════════════════════════════════
+//  ACTION 1: Open Standalone Print Page (print.html)
+//  Triggers Native Android / Chrome Print -> "Save as PDF"
+//  Zero memory overhead — Never crashes
+// ══════════════════════════════════════════════════
+function openPrintPage() {
+  saveReportDataForPrinting();
+  const win = window.open('print.html', '_blank');
+  if (!win || win.closed) {
+    // If popup was blocked by WebView, redirect or direct navigate
+    window.location.href = 'print.html';
+  }
+}
+
+function saveReportDataForPrinting() {
+  const filtered = getFilteredReportUsers();
+  const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
+
+  const reportData = {
+    title: title,
+    date: new Date().toLocaleDateString('ar-SA-u-nu-latn'),
+    time: new Date().toLocaleTimeString('ar-SA-u-nu-latn'),
+    users: filtered,
+    sections: DB.getSections(),
+    categories: DB.getCategories()
+  };
+
+  try {
+    localStorage.setItem('tamween_print_data', JSON.stringify(reportData));
+  } catch (e) {
+    console.warn('Print data storage warning:', e);
+  }
+}
+
+// ══════════════════════════════════════════════════
+//  ACTION 2: Export to Excel (.CSV with UTF-8 BOM)
+//  Opens directly in Excel / Google Sheets on any phone
+// ══════════════════════════════════════════════════
+function exportToExcel() {
+  const filtered = getFilteredReportUsers();
+  if (filtered.length === 0) {
+    showToast('لا توجد بيانات لتصديرها', 'error');
+    return;
+  }
+
+  const sections = DB.getSections();
+  const cats = DB.getCategories();
+
+  // CSV Header with BOM for correct Arabic rendering in Excel
+  let csv = '\uFEFF';
+  csv += '#,الاسم الكامل,القسم,الفئة,بطاقة العبور,عدد الأفراد,تم التسجيل على الماكينه,استلم التموين,العنوان,الهاتف\n';
+
+  filtered.forEach((u, i) => {
+    const sec = sections.find(s => s.id === u.section);
+    const cat = cats.find(c => c.id === u.category);
+    const name = `"${(u.name || '').replace(/"/g, '""')}"`;
+    const secName = `"${(sec ? sec.name : '—').replace(/"/g, '""')}"`;
+    const catName = `"${(cat ? cat.name : '—').replace(/"/g, '""')}"`;
+    const card = `"${(u.cardPass || '').replace(/"/g, '""')}"`;
+    const ind = u.individuals || 1;
+    const mach = u.registeredExternal ? 'نعم' : 'لا';
+    const rec = u.receivedTamween ? 'نعم' : 'لا';
+    const addr = `"${(u.address || '').replace(/"/g, '""')}"`;
+    const phone = `"${(u.phone || '').replace(/"/g, '""')}"`;
+
+    csv += `${i + 1},${name},${secName},${catName},${card},${ind},${mach},${rec},${addr},${phone}\n`;
+  });
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const fileName = `tamween_report_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 3000);
+
+  showToast('تم تحميل ملف Excel (CSV) بنجاح ✓', 'success');
+}
+
+// ══════════════════════════════════════════════════
+//  ACTION 3: Share Formatted Report to WhatsApp
+// ══════════════════════════════════════════════════
+function shareReportWhatsApp() {
+  const filtered = getFilteredReportUsers();
+  const title = document.getElementById('report-title') ? document.getElementById('report-title').textContent : 'تقرير تموين';
+  const total = filtered.length;
+  const totalInd = filtered.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
+  const received = filtered.filter(u => u.receivedTamween).length;
+  const pending = total - received;
+
+  let text = `📦 *${title}*\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+  text += `👥 إجمالي المستفيدين: ${total}\n`;
+  text += `👨‍👩‍👧‍👦 إجمالي الأفراد: ${totalInd}\n`;
+  text += `✅ استلموا التموين: ${received}\n`;
+  text += `⏳ لم يستلموا: ${pending}\n`;
+  text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+  filtered.forEach((u, i) => {
+    const status = u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم';
+    const card = u.cardPass ? `(بطاقة: ${u.cardPass})` : '';
+    text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
+  });
+
+  const url = `https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`;
+  window.open(url, '_blank');
+}
+
+// ══════════════════════════════════════════════════
+//  Main Button Handler: Open Preview Modal
+// ══════════════════════════════════════════════════
+function exportPDF() {
   const type = document.getElementById('report-type').value;
   const month = parseInt(document.getElementById('report-month').value);
   const year = parseInt(document.getElementById('report-year').value);
@@ -444,17 +295,7 @@ async function exportPDF() {
   const pendingCount = totalBeneficiaries - receivedCount;
   const machineRegisteredCount = filtered.filter(u => u.registeredExternal).length;
 
-  const secFilePart = secFilter ? `_sec_${secFilter}` : '_all_sections';
-  const statusFilePart = statusFilter ? `_${statusFilter}` : '_all';
-  const fileName = type === 'monthly'
-    ? `tamween_${year}_${String(month+1).padStart(2,'0')}${secFilePart}${statusFilePart}.pdf`
-    : `tamween_annual_${year}${secFilePart}${statusFilePart}.pdf`;
-
-  currentPdfFileName = fileName;
-  currentPdfDoc = null;
-  currentPdfBlob = null;
-
-  // Build the complete styled report HTML
+  // Build the complete on-screen report HTML
   const reportHTML = `
     <div style="background:#ffffff;padding:0;direction:rtl;font-family:'Cairo',sans-serif;text-align:right;">
       <!-- HEADER -->
@@ -529,19 +370,19 @@ async function exportPDF() {
                   const bg = i % 2 === 0 ? '#f8fafc' : '#ffffff';
                   return `
                   <tr style="background:${bg};border-bottom:1px solid #e2e8f0;">
-                    <td style="padding:9px 8px;color:#64748b;font-weight:600;">${i+1}</td>
+                    <td style="padding:9px 8px;color:#64748b;font-weight:600;">${i + 1}</td>
                     <td style="padding:9px 8px;font-weight:700;color:#0f172a;">${u.name}</td>
                     <td style="padding:9px 8px;color:#475569;">${sec ? sec.name : '—'}</td>
                     <td style="padding:9px 8px;color:#475569;">${cat ? cat.name : '—'}</td>
                     <td style="padding:9px 8px;text-align:center;font-weight:800;color:#1e40af;font-family:monospace;">${u.cardPass || '—'}</td>
                     <td style="padding:9px 8px;text-align:center;font-weight:800;color:#0f172a;">${ind}</td>
                     <td style="padding:9px 8px;text-align:center;">
-                      <span style="background:${u.registeredExternal?'#d1fae5':'#fee2e2'};color:${u.registeredExternal?'#065f46':'#991b1b'};padding:3px 8px;border-radius:14px;font-weight:700;font-size:11px;">
+                      <span style="background:${u.registeredExternal ? '#d1fae5' : '#fee2e2'};color:${u.registeredExternal ? '#065f46' : '#991b1b'};padding:3px 8px;border-radius:14px;font-weight:700;font-size:11px;">
                         ${u.registeredExternal ? '✔ نعم' : '✘ لا'}
                       </span>
                     </td>
                     <td style="padding:9px 8px;text-align:center;">
-                      <span style="background:${u.receivedTamween?'#d1fae5':'#fee2e2'};color:${u.receivedTamween?'#065f46':'#991b1b'};padding:3px 8px;border-radius:14px;font-weight:700;font-size:11px;">
+                      <span style="background:${u.receivedTamween ? '#d1fae5' : '#fee2e2'};color:${u.receivedTamween ? '#065f46' : '#991b1b'};padding:3px 8px;border-radius:14px;font-weight:700;font-size:11px;">
                         ${u.receivedTamween ? '✔ نعم' : '✘ لا'}
                       </span>
                     </td>
@@ -560,7 +401,10 @@ async function exportPDF() {
     </div>
   `;
 
-  // 1. Render directly into the in-app preview container (100% visible on screen!)
+  // Save report data for print.html
+  saveReportDataForPrinting();
+
+  // Render on-screen in the modal
   const container = document.getElementById('report-preview-container');
   if (container) {
     container.innerHTML = reportHTML;
@@ -570,12 +414,7 @@ async function exportPDF() {
     previewTitle.textContent = `${titleText} (${sectionLabel} - ${statusLabel})`;
   }
 
-  // 2. Open the preview modal so user immediately sees their report!
+  // Open modal so user sees report immediately
   openModal('report-preview-modal');
   showToast('تم إظهار التقرير بنجاح ✓', 'success');
-
-  // 3. Build the PDF in the background from the now-visible container
-  setTimeout(async () => {
-    await buildPdfFromPreview();
-  }, 300);
 }
