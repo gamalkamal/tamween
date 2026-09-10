@@ -242,7 +242,7 @@ function renderUsers() {
   const catFilter = document.getElementById('filter-category').value;
 
   let users = DB.getUsers().filter(u => {
-    const matchSearch = !search || u.name.toLowerCase().includes(search) || (u.nationalId && u.nationalId.includes(search));
+    const matchSearch = !search || u.name.toLowerCase().includes(search) || (u.nationalId && u.nationalId.includes(search)) || (u.cardPass && u.cardPass.toLowerCase().includes(search));
     const matchSec = !secFilter || u.section === secFilter;
     const matchCat = !catFilter || u.category === catFilter;
     return matchSearch && matchSec && matchCat;
@@ -260,16 +260,21 @@ function renderUsers() {
   container.innerHTML = users.map(u => {
     const sec = sections.find(s => s.id === u.section);
     const cat = categories.find(c => c.id === u.category);
+    const ind = parseInt(u.individuals) || 1;
     return `
     <div class="user-card" onclick="openUserDetail('${u.id}')">
       <div class="user-avatar" style="background:${avatarColor(u.name)}">${initials(u.name)}</div>
       <div class="user-info">
         <div class="user-name">${u.name}</div>
-        <div class="user-meta">${u.nationalId || 'لا يوجد رقم هوية'} ${u.phone ? '· ' + u.phone : ''}</div>
+        <div class="user-meta">
+          ${u.nationalId || 'لا يوجد رقم هوية'} ${u.phone ? '· ' + u.phone : ''}
+          ${u.cardPass ? ` · <span style="color:var(--primary);font-weight:700;">بطاقة: ${u.cardPass}</span>` : ''}
+        </div>
         <div class="user-badges">
           ${sec ? `<span class="badge badge-info" style="background:${sec.color}22;color:${sec.color}">${sec.name}</span>` : ''}
           ${cat ? `<span class="badge badge-neutral" style="background:${cat.color}22;color:${cat.color}">${cat.name}</span>` : ''}
-          ${u.registeredExternal ? '<span class="badge badge-success">مسجل خارجياً</span>' : '<span class="badge badge-warning">غير مسجل</span>'}
+          <span class="badge badge-neutral"><i class="fas fa-users"></i> ${ind} ${ind === 1 ? 'فرد' : 'أفراد'}</span>
+          ${u.registeredExternal ? '<span class="badge badge-success">تم التسجيل على الماكينه</span>' : '<span class="badge badge-warning">لم يتم التسجيل</span>'}
           ${u.receivedTamween ? '<span class="badge badge-success">استلم التموين</span>' : '<span class="badge badge-danger">لم يستلم</span>'}
         </div>
       </div>
@@ -282,24 +287,29 @@ function populateFilterDropdowns() {
   const sections = DB.getSections();
   const categories = DB.getCategories();
 
-  ['filter-section', 'user-section'].forEach(id => {
+  ['filter-section', 'user-section', 'report-section'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
-    const first = id.startsWith('filter') ? '<option value="">كل الأقسام</option>' : '<option value="">اختر القسم</option>';
+    const currentVal = el.value;
+    const first = id === 'user-section' ? '<option value="">اختر القسم</option>' : '<option value="">جميع الأقسام</option>';
     el.innerHTML = first + sections.map(s => `<option value="${s.id}">${s.name}</option>`).join('');
+    if (currentVal) el.value = currentVal;
   });
 
   ['filter-category', 'user-category'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
+    const currentVal = el.value;
     const first = id.startsWith('filter') ? '<option value="">كل الفئات</option>' : '<option value="">اختر الفئة</option>';
     el.innerHTML = first + categories.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+    if (currentVal) el.value = currentVal;
   });
 }
 
 // ---- User Modal ----
 function openUserModal(userId) {
-  clearForm(['user-name','user-national-id','user-phone','user-address','user-notes']);
+  clearForm(['user-name','user-national-id','user-phone','user-card-pass','user-address','user-notes']);
+  document.getElementById('user-individuals').value = '1';
   document.getElementById('user-id').value = userId || '';
   document.getElementById('user-modal-title').textContent = userId ? 'تعديل مستفيد' : 'إضافة مستفيد';
   populateFilterDropdowns();
@@ -310,6 +320,8 @@ function openUserModal(userId) {
       document.getElementById('user-name').value = u.name || '';
       document.getElementById('user-national-id').value = u.nationalId || '';
       document.getElementById('user-phone').value = u.phone || '';
+      document.getElementById('user-card-pass').value = u.cardPass || '';
+      document.getElementById('user-individuals').value = u.individuals || 1;
       document.getElementById('user-address').value = u.address || '';
       document.getElementById('user-notes').value = u.notes || '';
       document.getElementById('user-section').value = u.section || '';
@@ -328,6 +340,8 @@ function saveUser() {
     name,
     nationalId: document.getElementById('user-national-id').value.trim(),
     phone: document.getElementById('user-phone').value.trim(),
+    cardPass: document.getElementById('user-card-pass').value.trim(),
+    individuals: parseInt(document.getElementById('user-individuals').value) || 1,
     section: document.getElementById('user-section').value,
     category: document.getElementById('user-category').value,
     address: document.getElementById('user-address').value.trim(),
@@ -341,7 +355,6 @@ function saveUser() {
   } else {
     data.registeredExternal = false;
     data.receivedTamween = false;
-    data.cardPass = '';
     DB.addUser(data);
     showToast('تمت إضافة المستفيد ✓', 'success');
   }
@@ -361,6 +374,7 @@ function openUserDetail(userId) {
 
   const sec = DB.getSections().find(s => s.id === u.section);
   const cat = DB.getCategories().find(c => c.id === u.category);
+  const ind = parseInt(u.individuals) || 1;
 
   document.getElementById('detail-info').innerHTML = `
     <div class="detail-item"><div class="detail-item-label">رقم الهوية</div><div class="detail-item-value">${u.nationalId || '—'}</div></div>
@@ -374,11 +388,11 @@ function openUserDetail(userId) {
   document.getElementById('chk-external').checked = u.registeredExternal || false;
   document.getElementById('chk-received').checked = u.receivedTamween || false;
 
-  // Reset card pass UI
-  lockCard();
-  document.getElementById('card-pass-input').value = '';
-  document.getElementById('card-pass-error').classList.add('hidden');
+  // Direct card pass & individuals display (NO password required!)
+  document.getElementById('card-pass-value').textContent = u.cardPass || '—';
+  document.getElementById('individuals-value').textContent = ind + (ind === 1 ? ' فرد' : ' أفراد');
   document.getElementById('new-card-value').value = u.cardPass || '';
+  document.getElementById('new-individuals-value').value = ind;
 
   openModal('detail-modal');
 }
@@ -394,31 +408,15 @@ function saveChecklist() {
   renderUsers();
 }
 
-function unlockCard() {
-  const input = document.getElementById('card-pass-input').value;
-  const s = DB.getSettings();
-  if (input === s.cardPassword) {
-    const u = DB.getUserById(currentUserId);
-    document.getElementById('card-pass-value').textContent = u ? (u.cardPass || 'لا توجد بطاقة') : '—';
-    document.getElementById('card-pass-locked').classList.add('hidden');
-    document.getElementById('card-pass-content').classList.remove('hidden');
-    document.getElementById('card-pass-error').classList.add('hidden');
-  } else {
-    document.getElementById('card-pass-error').classList.remove('hidden');
-  }
-}
-
-function lockCard() {
-  document.getElementById('card-pass-locked').classList.remove('hidden');
-  document.getElementById('card-pass-content').classList.add('hidden');
-}
-
 function updateCardPass() {
-  const val = document.getElementById('new-card-value').value.trim();
+  const cardVal = document.getElementById('new-card-value').value.trim();
+  const indVal = parseInt(document.getElementById('new-individuals-value').value) || 1;
   if (!currentUserId) return;
-  DB.updateUser({ id: currentUserId, cardPass: val });
-  document.getElementById('card-pass-value').textContent = val || 'لا توجد بطاقة';
-  showToast('تم تحديث بطاقة العبور ✓', 'success');
+  DB.updateUser({ id: currentUserId, cardPass: cardVal, individuals: indVal });
+  document.getElementById('card-pass-value').textContent = cardVal || '—';
+  document.getElementById('individuals-value').textContent = indVal + (indVal === 1 ? ' فرد' : ' أفراد');
+  showToast('تم تحديث بيانات البطاقة والأفراد ✓', 'success');
+  renderUsers();
 }
 
 function editCurrentUser() {
