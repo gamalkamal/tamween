@@ -268,6 +268,12 @@
       <button class="btn btn-excel" onclick="downloadCsvFromPrint()">
         📊 تنزيل Excel
       </button>
+      <button class="btn" style="background:#25d366;color:#ffffff;" onclick="shareWhatsAppFromPrint()">
+        💬 مشاركة واتساب
+      </button>
+      <button class="btn" style="background:#0284c7;color:#ffffff;" onclick="downloadHtmlFromPrint()">
+        📄 تنزيل HTML
+      </button>
       <button class="btn btn-back" onclick="goBackToApp()">
         ✖ عودة للتطبيق
       </button>
@@ -370,20 +376,29 @@
     }
 
     function doPrint() {
+      // In WebView (APK), window.print() does nothing
+      const isWebView = /wv|Version\/[0-9.]+/i.test(navigator.userAgent) || (!window.chrome && /Android/i.test(navigator.userAgent));
+      if (isWebView) {
+        if (confirm('تطبيق الهاتف لا يدعم أمر الطباعة المباشر. هل تريد فتح التقرير في متصفح كروم لحفظه كـ PDF؟')) {
+          openInChrome();
+        }
+        return;
+      }
+
       try {
         window.print();
       } catch(e) {
-        alert('متصفح التطبيق لا يدعم أمر الطباعة المباشر. يرجى الضغط على زر "فتح في كروم للطباعة كـ PDF" بالأعلى.');
+        alert('يرجى الضغط على زر "فتح في كروم للطباعة كـ PDF" بالأعلى.');
       }
     }
 
     function openInChrome() {
+      const url = window.location.href.split('#')[0];
       const host = window.location.host;
       const path = window.location.pathname;
-      const hash = window.location.hash || ('#data=' + encodeURIComponent(localStorage.getItem('tamween_print_data') || '{}'));
 
-      const chromeIntent = `intent://${host}${path}${hash}#Intent;scheme=https;package=com.android.chrome;end`;
-      const browserIntent = `intent://${host}${path}${hash}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
+      const chromeIntent = `intent://${host}${path}#Intent;scheme=https;package=com.android.chrome;end`;
+      const browserIntent = `intent://${host}${path}#Intent;scheme=https;action=android.intent.action.VIEW;end`;
 
       try {
         window.location.href = chromeIntent;
@@ -391,12 +406,96 @@
           window.location.href = browserIntent;
         }, 1200);
       } catch(e) {
-        window.open(window.location.href, '_system');
+        window.open(url, '_system');
       }
     }
 
     function goBackToApp() {
-      window.location.href = 'index.html';
+      try {
+        if (window.opener && !window.opener.closed) {
+          window.close();
+          return;
+        }
+      } catch (e) {}
+
+      if (window.history.length > 1) {
+        window.history.back();
+      } else {
+        window.location.replace('index.html');
+      }
+    }
+
+    async function shareWhatsAppFromPrint() {
+      if (!globalReportData || !globalReportData.users) {
+        alert('لا توجد بيانات للمشاركة');
+        return;
+      }
+
+      const users = globalReportData.users;
+      const total = users.length;
+      const totalInd = users.reduce((s, u) => s + (parseInt(u.individuals) || 1), 0);
+      const rec = users.filter(u => u.receivedTamween).length;
+      const pend = total - rec;
+
+      let text = `📦 *${globalReportData.title || 'تقرير تموين'}*\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━━\n`;
+      text += `👥 إجمالي المستفيدين: ${total}\n`;
+      text += `👨‍👩‍👧‍👦 إجمالي الأفراد: ${totalInd}\n`;
+      text += `✅ استلموا التموين: ${rec}\n`;
+      text += `⏳ لم يستلموا: ${pend}\n`;
+      text += `━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+      users.forEach((u, i) => {
+        const status = u.receivedTamween ? '✅ استلم' : '⏳ لم يستلم';
+        const card = u.cardPass ? `(بطاقة: ${u.cardPass})` : '';
+        text += `${i + 1}. ${u.name} ${card} - ${u.individuals || 1} أفراد [${status}]\n`;
+      });
+
+      if (navigator.share) {
+        try {
+          await navigator.share({
+            title: globalReportData.title || 'تقرير تموين',
+            text: text
+          });
+          return;
+        } catch (err) {
+          if (err.name === 'AbortError') return;
+        }
+      }
+
+      const encoded = encodeURIComponent(text);
+      const isMobile = /Android|iPhone|iPad/i.test(navigator.userAgent);
+      if (isMobile) {
+        const a = document.createElement('a');
+        a.href = `whatsapp://send?text=${encoded}`;
+        a.target = '_blank';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          if (document.body.contains(a)) document.body.removeChild(a);
+        }, 600);
+      } else {
+        window.open(`https://web.whatsapp.com/send?text=${encoded}`, '_blank');
+      }
+    }
+
+    function downloadHtmlFromPrint() {
+      const paper = document.querySelector('.report-paper');
+      if (!paper) {
+        alert('لا توجد بيانات لتنزيلها');
+        return;
+      }
+
+      const title = (globalReportData && globalReportData.title) ? globalReportData.title : 'تقرير تموين';
+      const doc = `<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="UTF-8"><title>${title}</title><link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap" rel="stylesheet"><style>@page{size:A4 portrait;margin:8mm;}*{box-sizing:border-box;font-family:'Cairo',sans-serif;}body{background:#fff;direction:rtl;padding:16px;margin:0;}.report-paper{max-width:900px;margin:0 auto;}</style></head><body>${paper.outerHTML}</body></html>`;
+      const blob = new Blob([doc], { type: 'text/html;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tamween_report_${new Date().toISOString().slice(0, 10)}.html`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
 
     function downloadCsvFromPrint() {
