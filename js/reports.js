@@ -311,38 +311,48 @@ async function exportPDF() {
 
   showToast('جاري تجهيز تقرير PDF...', 'info');
 
+  // Create render element at document origin behind all elements (never negative off-screen)
   const printDiv = document.createElement('div');
+  printDiv.id = 'report-render-node';
   printDiv.style.cssText = `
-    position:fixed; top:-9999px; left:-9999px;
-    width:850px; background:#fff; font-family:'Cairo',sans-serif;
-    direction:rtl; padding:0; z-index:-1;
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 850px;
+    background: #ffffff;
+    font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif;
+    direction: rtl;
+    padding: 0;
+    margin: 0;
+    z-index: -99999;
+    opacity: 0.99;
+    pointer-events: none;
   `;
 
   printDiv.innerHTML = `
     <style>
-      @import url('https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800;900&display=swap');
-      * { box-sizing:border-box; margin:0; padding:0; font-family:'Cairo',sans-serif; }
-      body { direction:rtl; }
+      * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Cairo', 'Segoe UI', Tahoma, sans-serif; }
+      body { direction: rtl; }
     </style>
 
     <!-- HEADER -->
-    <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);padding:28px 36px;color:#fff;">
+    <div style="background:linear-gradient(135deg,#1e3a8a,#3b82f6);padding:28px 36px;color:#ffffff;">
       <div style="display:flex;align-items:center;justify-content:space-between;">
         <div style="display:flex;align-items:center;gap:14px;">
           <div style="width:52px;height:52px;background:rgba(255,255,255,0.2);border-radius:14px;display:flex;align-items:center;justify-content:center;font-size:26px;">📦</div>
           <div>
-            <div style="font-size:28px;font-weight:900;letter-spacing:1px;">تموين</div>
-            <div style="font-size:13px;opacity:0.85;">نظام إدارة المستفيدين والتموين</div>
+            <div style="font-size:28px;font-weight:900;letter-spacing:1px;color:#ffffff;">تموين</div>
+            <div style="font-size:13px;opacity:0.9;color:#ffffff;">نظام إدارة المستفيدين والتموين</div>
           </div>
         </div>
-        <div style="text-align:left;font-size:12px;opacity:0.85;">
+        <div style="text-align:left;font-size:12px;opacity:0.9;color:#ffffff;">
           <div>تاريخ الطباعة: ${new Date().toLocaleDateString('ar-SA-u-nu-latn')}</div>
           <div>الوقت: ${new Date().toLocaleTimeString('ar-SA-u-nu-latn')}</div>
         </div>
       </div>
-      <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.2);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-size:20px;font-weight:800;">${titleText}</div>
-        <div style="font-size:13px;background:rgba(255,255,255,0.2);padding:4px 12px;border-radius:20px;">
+      <div style="margin-top:16px;border-top:1px solid rgba(255,255,255,0.25);padding-top:12px;display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:20px;font-weight:800;color:#ffffff;">${titleText}</div>
+        <div style="font-size:13px;background:rgba(255,255,255,0.2);padding:4px 14px;border-radius:20px;color:#ffffff;">
           ${sectionLabel} | ${statusLabel}
         </div>
       </div>
@@ -350,23 +360,23 @@ async function exportPDF() {
 
     <!-- STATS SUMMARY (5 Cards) -->
     <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:20px 36px 0;">
-      <div style="background:#1e40af;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+      <div style="background:#1e40af;border-radius:12px;padding:14px;color:#ffffff;text-align:center;">
         <div style="font-size:28px;font-weight:900;">${totalBeneficiaries}</div>
         <div style="font-size:11px;opacity:0.9;margin-top:4px;">إجمالي المستفيدين</div>
       </div>
-      <div style="background:#4338ca;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+      <div style="background:#4338ca;border-radius:12px;padding:14px;color:#ffffff;text-align:center;">
         <div style="font-size:28px;font-weight:900;">${totalIndividuals}</div>
         <div style="font-size:11px;opacity:0.9;margin-top:4px;">إجمالي الأفراد</div>
       </div>
-      <div style="background:#065f46;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+      <div style="background:#065f46;border-radius:12px;padding:14px;color:#ffffff;text-align:center;">
         <div style="font-size:28px;font-weight:900;">${receivedCount}</div>
         <div style="font-size:11px;opacity:0.9;margin-top:4px;">استلموا التموين</div>
       </div>
-      <div style="background:#991b1b;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+      <div style="background:#991b1b;border-radius:12px;padding:14px;color:#ffffff;text-align:center;">
         <div style="font-size:28px;font-weight:900;">${pendingCount}</div>
         <div style="font-size:11px;opacity:0.9;margin-top:4px;">لم يستلموا بعد</div>
       </div>
-      <div style="background:#6b21a8;border-radius:12px;padding:14px;color:#fff;text-align:center;">
+      <div style="background:#6b21a8;border-radius:12px;padding:14px;color:#ffffff;text-align:center;">
         <div style="font-size:28px;font-weight:900;">${machineRegisteredCount}</div>
         <div style="font-size:11px;opacity:0.9;margin-top:4px;">تم التسجيل على الماكينه</div>
       </div>
@@ -376,7 +386,7 @@ async function exportPDF() {
     <div style="padding:20px 36px 36px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;">
         <thead>
-          <tr style="background:linear-gradient(90deg,#1e40af,#3b82f6);color:#fff;">
+          <tr style="background:linear-gradient(90deg,#1e40af,#3b82f6);color:#ffffff;">
             <th style="padding:10px 8px;text-align:right;">#</th>
             <th style="padding:10px 8px;text-align:right;">الاسم الكامل</th>
             <th style="padding:10px 8px;text-align:right;">القسم</th>
@@ -389,7 +399,7 @@ async function exportPDF() {
         </thead>
         <tbody>
           ${filtered.length === 0
-            ? `<tr><td colspan="8" style="text-align:center;padding:30px;color:#64748b;">لا توجد بيانات مطابقة لمعايير التقرير</td></tr>`
+            ? `<tr><td colspan="8" style="text-align:center;padding:30px;color:#64748b;font-size:14px;">لا توجد بيانات مطابقة لمعايير التقرير</td></tr>`
             : filtered.map((u, i) => {
                 const sec = sections.find(s => s.id === u.section);
                 const cat = cats.find(c => c.id === u.category);
@@ -422,7 +432,7 @@ async function exportPDF() {
       <!-- FOOTER -->
       <div style="margin-top:28px;padding-top:14px;border-top:2px solid #e2e8f0;display:flex;justify-content:space-between;align-items:center;color:#94a3b8;font-size:11px;">
         <span>نظام تموين - تقرير رسمي مصدق</span>
-        <span>إجمالي الصفحات: صفحة 1 من 1</span>
+        <span>تاريخ الإصدار: ${new Date().toLocaleDateString('ar-SA-u-nu-latn')}</span>
       </div>
     </div>
   `;
@@ -430,20 +440,30 @@ async function exportPDF() {
   document.body.appendChild(printDiv);
 
   await document.fonts.ready;
-  await new Promise(r => setTimeout(r, 600));
+  await new Promise(r => setTimeout(r, 400));
 
   try {
+    // Render using exact origin coordinates to ensure zero blanking
     const canvas = await html2canvas(printDiv, {
       scale: 2,
       useCORS: true,
-      allowTaint: true,
+      allowTaint: false,
       backgroundColor: '#ffffff',
       width: 850,
+      windowWidth: 850,
+      x: 0,
+      y: 0,
+      scrollX: 0,
+      scrollY: 0,
       logging: false
     });
 
+    if (!canvas || canvas.width === 0 || canvas.height === 0) {
+      throw new Error('Canvas render was empty');
+    }
+
+    const imgData = canvas.toDataURL('image/jpeg', 0.95);
     const { jsPDF } = window.jspdf;
-    const imgData = canvas.toDataURL('image/jpeg', 0.97);
 
     const pageW = 210;
     const pageH = 297;
@@ -452,17 +472,38 @@ async function exportPDF() {
 
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
-    let heightLeft = imgH;
-    let position = 0;
+    if (imgH <= pageH) {
+      // Fits on a single A4 page
+      doc.addImage(imgData, 'JPEG', 0, 0, imgW, imgH);
+    } else {
+      // Multi-page: slice canvas into A4 chunks so each page is cleanly drawn
+      const pageCanvasHeight = (canvas.width * pageH) / pageW;
+      let renderedHeight = 0;
+      let pageIndex = 0;
 
-    doc.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-    heightLeft -= pageH;
+      while (renderedHeight < canvas.height) {
+        if (pageIndex > 0) doc.addPage();
 
-    while (heightLeft > 0) {
-      position = heightLeft - imgH;
-      doc.addPage();
-      doc.addImage(imgData, 'JPEG', 0, position, imgW, imgH);
-      heightLeft -= pageH;
+        const chunkHeight = Math.min(pageCanvasHeight, canvas.height - renderedHeight);
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = canvas.width;
+        pageCanvas.height = pageCanvasHeight;
+        const pageCtx = pageCanvas.getContext('2d');
+        pageCtx.fillStyle = '#ffffff';
+        pageCtx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+
+        pageCtx.drawImage(
+          canvas,
+          0, renderedHeight, canvas.width, chunkHeight,
+          0, 0, canvas.width, chunkHeight
+        );
+
+        const pageImgData = pageCanvas.toDataURL('image/jpeg', 0.95);
+        doc.addImage(pageImgData, 'JPEG', 0, 0, pageW, pageH);
+
+        renderedHeight += pageCanvasHeight;
+        pageIndex++;
+      }
     }
 
     const secFilePart = secFilter ? `_sec_${secFilter}` : '_all_sections';
